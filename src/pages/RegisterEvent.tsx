@@ -36,6 +36,7 @@ const RegisterEvent = () => {
         ticketId ? 'pending' : 'idle'
     );
     const [error, setError] = useState('');
+    const [showAmountForm, setShowAmountForm] = useState(false);
 
     const urlAmount = searchParams.get('amount');
     const urlTicketId = searchParams.get('ticketId');
@@ -153,17 +154,23 @@ const RegisterEvent = () => {
                         className="space-y-8"
                     >
                         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/5 border border-slate-900/10">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span className="text-xs font-semibold tracking-wide text-slate-700 uppercase">Live Registration</span>
+                            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                            <span className="text-xs font-semibold tracking-wide text-slate-700 uppercase">Under Construction</span>
                         </div>
 
                         <h1 className="text-5xl lg:text-7xl tracking-tighter leading-[0.9] font-bold text-slate-950">
-                            Sahrdaya IEEE<br />
-                            <span className="text-slate-400">Event Portal.</span>
+                            IEEE Sahrdaya<br />
+                            <span className="text-slate-400">Payment Portal.</span>
                         </h1>
                         <p className="text-lg text-slate-600 leading-relaxed max-w-[50ch] mt-6">
                             Secure your access instantly. Generate a unique cryptographic pass, scan via any UPI app, and receive your verified entry ticket.
                         </p>
+
+                        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 mt-2">
+                            <p className="text-sm text-amber-800 leading-relaxed">
+                                This portal is currently under active development. Some features may be incomplete or subject to change.
+                            </p>
+                        </div>
                     </motion.div>
 
                     <motion.div
@@ -208,50 +215,79 @@ const RegisterEvent = () => {
                                     exit={{ opacity: 0, x: -20 }}
                                     className="relative z-10"
                                 >
-                                    <div className="mb-8">
-                                        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Initialize Ticket</h2>
-                                        <p className="text-sm text-slate-500 mt-1">Enter desired amount for the transaction.</p>
-                                    </div>
-
-                                    <div className="space-y-6">
-                                        <div className="relative group">
-                                            <label className="block text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">
-                                                Amount
-                                            </label>
-                                            <div className="relative flex items-center">
-                                                <span className="absolute left-4 text-slate-400 font-medium text-xl">₹</span>
-                                                <input
-                                                    type="number"
-                                                    value={amount}
-                                                    onChange={(e) => setAmount(e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="w-full bg-slate-50/50 border border-slate-200 rounded-[1.25rem] py-4 pl-10 pr-4 text-2xl font-bold text-slate-900 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
-                                                    autoFocus
-                                                />
+                                    {!showAmountForm ? (
+                                        <>
+                                            <div className="mb-6">
+                                                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Testing Site</h2>
+                                                <p className="text-sm text-slate-500 mt-1">This portal is not yet in production.</p>
                                             </div>
-                                            {error && (
-                                                <motion.p
-                                                    initial={{ opacity: 0, y: -10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    className="text-red-500 text-sm mt-3 flex items-center gap-1.5"
-                                                >
-                                                    <WarningCircle weight="fill" />
-                                                    {error}
-                                                </motion.p>
-                                            )}
-                                        </div>
 
-                                        <button
-                                            onClick={createTicket}
-                                            disabled={!amount || Number(amount) <= 0}
-                                            className="group relative w-full flex items-center justify-between bg-slate-950 text-white rounded-[1.25rem] py-4 px-6 font-semibold overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
-                                        >
-                                            <span className="relative z-10">Generate Pass</span>
-                                            <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full bg-white/10 group-hover:bg-white/20 transition-colors">
-                                                <ArrowRight className="w-4 h-4" />
-                                            </span>
-                                        </button>
-                                    </div>
+                                            <div className="p-5 rounded-[1.25rem] bg-amber-50 border border-amber-200 mb-6">
+                                                <p className="text-sm font-semibold text-amber-800 mb-1">Heads up</p>
+                                                <p className="text-xs text-amber-700 leading-relaxed">
+                                                    This is a testing site. Payments processed here are real UPI transactions.
+                                                    Only proceed if you intend to make a test payment.
+                                                </p>
+                                            </div>
+
+                                            <button
+                                                onClick={() => setShowAmountForm(true)}
+                                                className="group relative w-full flex items-center justify-between bg-slate-950 text-white rounded-[1.25rem] py-4 px-6 font-semibold overflow-hidden transition-all active:scale-[0.98] hover:bg-slate-800"
+                                            >
+                                                <span className="relative z-10">I'm a Tester</span>
+                                                <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full bg-white/10 group-hover:bg-white/20 transition-colors">
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </span>
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="mb-8">
+                                                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Initialize Ticket</h2>
+                                                <p className="text-sm text-slate-500 mt-1">Enter desired amount for the transaction.</p>
+                                            </div>
+
+                                            <div className="space-y-6">
+                                                <div className="relative group">
+                                                    <label className="block text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">
+                                                        Amount
+                                                    </label>
+                                                    <div className="relative flex items-center">
+                                                        <span className="absolute left-4 text-slate-400 font-medium text-xl">₹</span>
+                                                        <input
+                                                            type="number"
+                                                            value={amount}
+                                                            onChange={(e) => setAmount(e.target.value)}
+                                                            placeholder="0.00"
+                                                            className="w-full bg-slate-50/50 border border-slate-200 rounded-[1.25rem] py-4 pl-10 pr-4 text-2xl font-bold text-slate-900 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                    {error && (
+                                                        <motion.p
+                                                            initial={{ opacity: 0, y: -10 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            className="text-red-500 text-sm mt-3 flex items-center gap-1.5"
+                                                        >
+                                                            <WarningCircle weight="fill" />
+                                                            {error}
+                                                        </motion.p>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    onClick={createTicket}
+                                                    disabled={!amount || Number(amount) <= 0}
+                                                    className="group relative w-full flex items-center justify-between bg-slate-950 text-white rounded-[1.25rem] py-4 px-6 font-semibold overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                                                >
+                                                    <span className="relative z-10">Generate Pass</span>
+                                                    <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full bg-white/10 group-hover:bg-white/20 transition-colors">
+                                                        <ArrowRight className="w-4 h-4" />
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
                                 </motion.div>
                             )}
 
