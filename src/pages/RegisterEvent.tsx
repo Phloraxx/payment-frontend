@@ -63,7 +63,7 @@ const realtime = new Realtime(appwriteClient);
             const timestamp = data.timestamp;
 
             if (channels.length > 0 && payload !== undefined) {
-                for (const [slot, sub] of this.activeSubscriptions || []) {
+                for (const [, sub] of this.activeSubscriptions || []) {
                     for (const ch of channels) {
                         if (sub.channels && sub.channels.has(ch)) {
                             sub.callback({ events, channels, timestamp, payload, subscriptions: [] });
