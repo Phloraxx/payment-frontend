@@ -12,7 +12,8 @@ import {
     Lightning,
     QrCode,
     ArrowRight,
-    CreditCard
+    CreditCard,
+    ShareNetwork
 } from '@phosphor-icons/react';
 
 const API_URL = 'https://payment-api.nerdpixel.workers.dev/api';
@@ -20,6 +21,7 @@ const API_URL = 'https://payment-api.nerdpixel.workers.dev/api';
 interface TicketResponse {
     id: string;
     amount: number;
+    upi_string: string;
     status: string;
 }
 
@@ -36,6 +38,7 @@ const RegisterEvent = () => {
         ticketId ? 'pending' : 'idle'
     );
     const [error, setError] = useState('');
+    const [upiString, setUpiString] = useState('');
     const [showAmountForm, setShowAmountForm] = useState(false);
 
     const urlAmount = searchParams.get('amount');
@@ -66,6 +69,8 @@ const RegisterEvent = () => {
                 amount: Number(amount)
             });
             console.log('Ticket Created:', res.data);
+
+            setUpiString(res.data.upi_string);
 
             setSearchParams(prev => {
                 const newParams = new URLSearchParams(prev);
@@ -106,44 +111,75 @@ const RegisterEvent = () => {
         return () => clearInterval(interval);
     }, [ticketId, status, navigate]);
 
-    const upiUrl = ticketId
-        ? `upi://pay?pa=souravpbijoy-2@okicici&am=${amount}&tn=${ticketId}&cu=INR&pn=IEEESahrdaya`
-        : '';
+    useEffect(() => {
+        if (ticketId && !upiString) {
+            axios.get<TicketResponse>(`${API_URL}/status/${ticketId}`)
+                .then(res => {
+                    if (res.data.upi_string) setUpiString(res.data.upi_string);
+                    if (res.data.amount) setAmount(String(res.data.amount));
+                })
+                .catch(err => console.error('Failed to fetch ticket:', err));
+        }
+    }, [ticketId]);
 
-    const downloadQR = () => {
+    const upiUrl = upiString;
+
+    const getQRBlob = (): Promise<Blob | null> => new Promise((resolve) => {
         const svg = document.querySelector('#qr-code-container svg');
-        if (svg) {
-            const svgData = new XMLSerializer().serializeToString(svg);
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const img = new Image();
+        if (!svg) return resolve(null);
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        const padding = 24;
+        img.onload = () => {
+            canvas.width = img.width + padding * 2;
+            canvas.height = img.height + padding * 2;
+            if (ctx) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, padding, padding);
+                canvas.toBlob(b => resolve(b), 'image/png');
+            } else resolve(null);
+        };
+        img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    });
 
-            const padding = 24;
+    const downloadQR = async () => {
+        const blob = await getQRBlob();
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.download = `upi-qr-${ticketId}.png`;
+        a.href = url;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
-            img.onload = () => {
-                canvas.width = img.width + (padding * 2);
-                canvas.height = img.height + (padding * 2);
-
-                if (ctx) {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(img, padding, padding);
-
-                    const pngFile = canvas.toDataURL('image/png');
-                    const downloadLink = document.createElement('a');
-                    downloadLink.download = `ticket-${ticketId}.png`;
-                    downloadLink.href = pngFile;
-                    downloadLink.click();
-                }
-            };
-
-            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    const shareQR = async () => {
+        const blob = await getQRBlob();
+        if (!blob) return;
+        const file = new File([blob], `upi-qr-${ticketId}.png`, { type: 'image/png' });
+        if (!navigator.share) {
+            alert('Sharing is not supported on this browser. Use the Save QR button instead.');
+            return;
+        }
+        try {
+            await navigator.share({
+                files: [file],
+                title: 'UPI Payment QR',
+                text: `Scan to pay ₹${amount} — select GPay from the share sheet`
+            });
+        } catch (err: unknown) {
+            if ((err as DOMException)?.name !== 'AbortError') {
+                alert('Could not open share sheet.');
+            }
         }
     };
 
     return (
-        <div className="min-h-[100dvh] bg-[#f9fafb] text-slate-900 font-sans p-6 md:p-12 flex flex-col justify-center overflow-x-hidden">
-            <div className="max-w-[1200px] mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 items-center">
+        <div className="min-h-dvh bg-[#f9fafb] text-slate-900 font-sans p-6 md:p-12 flex flex-col justify-center overflow-x-hidden">
+            <div className="max-w-300 mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 items-center">
 
                 {/* Left Side: Asymmetrical Hero */}
                 <div className="lg:col-span-7 flex flex-col justify-center pt-10 lg:pt-0">
@@ -179,12 +215,12 @@ const RegisterEvent = () => {
                         transition={{ delay: 0.3, duration: 0.8 }}
                         className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-12"
                     >
-                        <div className="bg-white p-8 rounded-[2rem] border border-slate-200/50 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300">
+                        <div className="bg-white p-8 rounded-4xl border border-slate-200/50 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300">
                             <ShieldCheck weight="duotone" className="w-8 h-8 text-slate-900 mb-5" />
                             <h3 className="text-lg font-semibold text-slate-900 tracking-tight">Verified Protocol</h3>
                             <p className="text-sm text-slate-500 mt-2 leading-relaxed">End-to-end secure transactions directly linked to your digital identity.</p>
                         </div>
-                        <div className="bg-white p-8 rounded-[2rem] border border-slate-200/50 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300">
+                        <div className="bg-white p-8 rounded-4xl border border-slate-200/50 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300">
                             <Lightning weight="duotone" className="w-8 h-8 text-slate-900 mb-5" />
                             <h3 className="text-lg font-semibold text-slate-900 tracking-tight">Instant Issue</h3>
                             <p className="text-sm text-slate-500 mt-2 leading-relaxed">Zero latency ticket generation immediately post-payment verification.</p>
@@ -330,13 +366,13 @@ const RegisterEvent = () => {
                                     </div>
 
                                     <div className="w-full space-y-3">
-                                        <a
-                                            href="intent://pay?#Intent;scheme=upi;end"
+                                        <button
+                                            onClick={shareQR}
                                             className="flex items-center justify-center gap-2 w-full py-4 bg-slate-950 text-white font-semibold rounded-[1.25rem] shadow-md transition-all active:scale-[0.98] hover:bg-slate-900"
                                         >
-                                            <Lightning fill="currentColor" className="w-5 h-5" />
-                                            Pay via UPI App
-                                        </a>
+                                            <ShareNetwork weight="fill" className="w-5 h-5" />
+                                            Share QR to GPay
+                                        </button>
 
                                         <button
                                             onClick={downloadQR}
