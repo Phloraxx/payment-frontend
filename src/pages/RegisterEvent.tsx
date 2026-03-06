@@ -121,10 +121,21 @@ const RegisterEvent = () => {
     const [showAmountForm, setShowAmountForm] = useState(false);
     const [docId, setDocId] = useState(''); // internal secure id from backend
 
+    // new loading indicator flag
+    const [isFetching, setIsFetching] = useState(false);
+
 
     // when component mounts with a ticketId in the URL, fetch its status to resume
     useEffect(() => {
         if (!ticketId) return;
+
+        // clear stale UI and show loading placeholder
+        setStatus('loading');
+        setUpiString('');
+        setAmount('');
+        setTimeLeft(0);
+        setIsFetching(true);
+
         axios.get<StatusResponse>(`${API_URL}/status/${ticketId}`)
             .then(res => {
                 setDocId(res.data.id);
@@ -159,6 +170,9 @@ const RegisterEvent = () => {
             .catch(err => {
                 console.error('Status fetch failed', err);
                 setStatus('idle');
+            })
+            .finally(() => {
+                setIsFetching(false);
             });
     }, [ticketId]);
 
@@ -414,7 +428,22 @@ const RegisterEvent = () => {
                         </div>
 
                         <AnimatePresence mode="wait">
-                            {status === 'idle' && (
+                            {isFetching && (
+                                <motion.div
+                                    key="fetching"
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="flex flex-col items-center justify-center py-12 text-slate-900 relative z-10"
+                                >
+                                    <CircleNotch className="w-10 h-10 animate-spin text-slate-900 mb-6" weight="bold" />
+                                    <h3 className="text-xl font-bold tracking-tight">Checking status…</h3>
+                                    <p className="text-sm text-slate-500 mt-2 text-center">
+                                        Fetching the latest information from server…
+                                    </p>
+                                </motion.div>
+                            )}
+                            {!isFetching && status === 'idle' && (
                                 <motion.div
                                     key="idle"
                                     initial={{ opacity: 0, x: 20 }}
@@ -498,7 +527,7 @@ const RegisterEvent = () => {
                                 </motion.div>
                             )}
 
-                            {status === 'loading' && (
+                            {status === 'loading' && !isFetching && (
                                 <motion.div
                                     key="loading"
                                     initial={{ opacity: 0, scale: 0.95 }}
@@ -512,7 +541,7 @@ const RegisterEvent = () => {
                                 </motion.div>
                             )}
 
-                            {status === 'pending' && ticketId && (
+                            {!isFetching && status === 'pending' && ticketId && (
                                 <motion.div
                                     key="pending"
                                     initial={{ opacity: 0, scale: 0.95 }}
@@ -572,7 +601,7 @@ const RegisterEvent = () => {
                                 </motion.div>
                             )}
 
-                            {status === 'expired' && (
+                            {!isFetching && status === 'expired' && (
                                 <motion.div
                                     key="expired"
                                     initial={{ opacity: 0, scale: 0.9 }}
@@ -605,7 +634,7 @@ const RegisterEvent = () => {
                                 </motion.div>
                             )}
 
-                            {status === 'paid' && (
+                            {!isFetching && status === 'paid' && (
                                 <motion.div
                                     key="paid"
                                     initial={{ opacity: 0, scale: 0.9 }}
