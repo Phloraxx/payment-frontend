@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import usePaymentSocket from '../hooks/usePaymentSocket';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Client, Realtime } from 'appwrite';
+// Appwrite realtime removed; using native WebSocket instead
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -21,60 +22,9 @@ import {
 
 const API_URL = 'https://payment-api.nerdpixel.workers.dev/api';
 
-const APPWRITE_ENDPOINT = 'https://backend.ieeesahrdaya.com/v1';
-const APPWRITE_PROJECT_ID = '6948e3640018a902b864'; // TODO: replace
-const APPWRITE_DB_ID = '697522750025b8e28c32';           // TODO: replace
-const APPWRITE_COLLECTION_ID = 'payment'; // <- put the actual collection ID here (not just name)
+// Appwrite constants no longer needed.
 const TICKET_WINDOW_MS = 5 * 60 * 1000;
 
-// shared Appwrite client instance
-const appwriteClient = new Client()
-    .setEndpoint(APPWRITE_ENDPOINT)
-    .setProject(APPWRITE_PROJECT_ID);
-// realtime helper
-const realtime = new Realtime(appwriteClient);
-
-// Work around Appwrite server not including `subscriptions` in event frames.
-// The official SDK drops any event lacking that property, so we patch the
-// internal handler to dispatch by channel instead when subscriptions are
-// empty.  This ensures our callback fires for document updates.
-(function patchRealtime() {
-    const r: any = realtime;
-    if (r && typeof r.handleResponseEvent === 'function') {
-        const original = r.handleResponseEvent.bind(r);
-        r.handleResponseEvent = function (message: any) {
-            const data = message.data || {};
-            // if backend sent a subscriptions array we still want the normal
-            // behavior so call the original first; it will early-return if it
-            // doesn't match, which is fine since we then run our fallback.
-            try {
-                original(message);
-            } catch (e) {
-                console.warn('patched handleResponseEvent original threw', e);
-            }
-
-            // fallback: deliver to any active subscription whose channel
-            // matches one of the event's channels, regardless of subscription
-            // IDs.  This handles the case where `data.subscriptions` is missing
-            // or empty.
-            const channels: string[] = data.channels || [];
-            const events: string[] = data.events || [];
-            const payload = data.payload;
-            const timestamp = data.timestamp;
-
-            if (channels.length > 0 && payload !== undefined) {
-                for (const [, sub] of this.activeSubscriptions || []) {
-                    for (const ch of channels) {
-                        if (sub.channels && sub.channels.has(ch)) {
-                            sub.callback({ events, channels, timestamp, payload, subscriptions: [] });
-                            break;
-                        }
-                    }
-                }
-            }
-        };
-    }
-})();
 
 
 
@@ -106,7 +56,6 @@ const RegisterEvent = () => {
     const navigate = useNavigate();
 
     const ticketId = searchParams.get('ticketId');
-    const internalId = searchParams.get('id');
 
     const [amount, setAmount] = useState('');
 
@@ -139,14 +88,6 @@ const RegisterEvent = () => {
         axios.get<StatusResponse>(`${API_URL}/status/${ticketId}`)
             .then(res => {
                 setDocId(res.data.id);
-                if (!internalId) {
-                    // keep internalId in sync if needed
-                    setSearchParams(prev => {
-                        const np = new URLSearchParams(prev);
-                        np.set('id', res.data.id);
-                        return np;
-                    });
-                }
                 if (res.data.status === 'paid' || res.data.paidAt) {
                     setStatus('paid');
                     setCreatedAt(res.data.createdAt);
@@ -201,7 +142,6 @@ const RegisterEvent = () => {
             setSearchParams(prev => {
                 const newParams = new URLSearchParams(prev);
                 newParams.set('ticketId', res.data.ticketId);
-                newParams.set('id', res.data.id);
                 return newParams;
             });
 
@@ -243,66 +183,15 @@ const RegisterEvent = () => {
         };
     }, [ticketId, status, createdAt]);
 
-    // separate effect solely responsible for realtime updates (no polling)
+    // simplified listener backed by reusable hook
+    const paid = usePaymentSocket(ticketId);
+
     useEffect(() => {
-        if (!docId) return;
-        const path = `databases.${APPWRITE_DB_ID}.collections.${APPWRITE_COLLECTION_ID}.documents.${docId}`;
-
-        // keep a reference to the unsubscribe function so cleanup works even
-        // if the subscribe promise resolves after unmount
-        let unsubscribeFn: (() => void) | null = null;
-
-        // helper to create the subscription and stash the unbinder
-        const setup = async () => {
-            try {
-                const sub: any = await realtime.subscribe(
-                    path,
-                    async (response: { payload: any; error?: any }) => {
-                        if (response.error) {
-                            console.error('appwrite subscription error', response.error);
-                        }
-                        const doc = response.payload?.document || response.payload;
-                        if (!doc) return;
-                        if (doc.status === 'paid' || doc.paidAt) {
-                            // re‑confirm using the public ticketId endpoint as requested
-                            try {
-                                const res = await axios.get<StatusResponse>(
-                                    `${API_URL}/status/${doc.ticketId}`
-                                );
-                                setCreatedAt(res.data.createdAt);
-                                setAmount(String(res.data.amount));
-                                setUpiString(
-                                    `upi://pay?pa=souravpbijoy-3@okaxis&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`
-                                );
-                            } catch (err) {
-                                console.error(
-                                    'error refetching status after paid event',
-                                    err
-                                );
-                            }
-                            setStatus('paid');
-                            setTimeout(() => navigate(`/ticket/${doc.ticketId}`), 1500);
-                            // immediately unsubscribe so we don't get duplicate
-                            unsubscribeFn && unsubscribeFn();
-                        }
-                    }
-                );
-
-                if (sub && typeof sub.unsubscribe === 'function') {
-                    unsubscribeFn = () => sub.unsubscribe();
-                }
-            } catch (err) {
-                console.error('subscribe promise rejected', err);
-            }
-        };
-
-        setup();
-
-        return () => {
-            console.log('unsubscribing from', docId, 'path', path);
-            unsubscribeFn && unsubscribeFn();
-        };
-    }, [docId, navigate]);
+        if (paid) {
+            setStatus('paid');
+            setTimeout(() => navigate(`/ticket/${ticketId}`), 1500);
+        }
+    }, [paid, ticketId, navigate]);
 
 
 
@@ -619,7 +508,7 @@ const RegisterEvent = () => {
                                     <p className="text-sm text-slate-500 mt-2 text-center">This ticket has expired.<br />Please generate a new one.</p>
                                     <button
                                         onClick={() => {
-                                            setSearchParams({});
+                                            setSearchParams({}); // clears ticketId too
                                             setStatus('idle');
                                             setUpiString('');
                                             setTimeLeft(0);
