@@ -2,21 +2,23 @@
 
 This repository implements a simple ticketing/payment portal using a
 **React/TypeScript** frontend hosted by Vite and a **Cloudflare Workers**
-backend.  Real‑time status updates are delivered via **Appwrite Realtime**
-subscriptions, with Appwrite acting as the primary database.
+backend.  (Appwrite is used on the backend for storage, but the frontend
+no longer imports the Appwrite SDK; real‑time events flow through a
+custom WebSocket proxy.)
 
 The high‑level flow is:
 
 1. User opens `/register?ticketId=…` or generates a new ticket with an
    amount.
-2. Frontend calls `/api/ticket` to create a document in Appwrite and
-   receives both an internal document ID and a human‑readable ticket ID.
+2. Frontend calls `/api/ticket` to create a document in the backend
+   database (Appwrite under the hood) and receives both an internal
+   document ID and a human‑readable ticket ID.
 3. A UPI QR code is shown; the user scans and pays.
 4. When the SMS forwarder detects the payment it POSTs to
    `/api/webhook`, which updates the Appwrite document to `paid`.
-5. The frontend, which has subscribed to the document via Appwrite
-   realtime, immediately transitions to the **paid** state and
-   navigates to the ticket page.
+5. The frontend, which has opened a secure WebSocket to the backend
+   proxy, immediately transitions to the **paid** state and navigates to
+   the ticket page.
 
 ## Components
 
@@ -32,10 +34,9 @@ The high‑level flow is:
 - **Realtime subscription**: opens a WebSocket to
   `databases.<DB>.collections.<COL>.documents.<docId>`. When an event with
   `status: "paid"` arrives, the UI updates and the user is redirected.
-- **Race handling**: due to Appwrite sometimes omitting the
-  `subscriptions` field from events, the client patches the SDK to
-  dispatch by channel. A fallback status fetch after subscribing ensures
-  the ticket isn’t missed.
+- **Race handling**: early versions used Appwrite’s SDK and needed a
+  patch; the current WebSocket proxy sends clean `payment_update`
+  messages so no workaround is required.
 - **Expiration**: ticket is valid for 5 minutes (server time) then
   transitions to `expired` automatically.
 
@@ -64,17 +65,19 @@ The high‑level flow is:
   status checks.  This endpoint is rate‑limited by Cloudflare and is used
   by the frontend as a backup.
 
-### Appwrite Configuration
+### Backend Configuration (Appwrite)
 
-- **Database** `697522750025b8e28c32` with collection `payment`.
-- Documents have fields: `ticketId`, `amount`, `status`, `senderName`,
-  `paidAt`, `createdAt`, etc.
-- Default read permission is `role:any` (public) to allow anonymous
-  realtime subscriptions; adjust to `user:<id>` for per‑user privacy.
-- Realtime channel pattern: `databases.<DB>.collections.<COL>.documents.<ID>`.
+- The Cloudflare Workers backend uses Appwrite for persistent storage;
+  the frontend interacts with it only via `/api/*` endpoints and a
+  WebSocket proxy.
+- Documents in the `payment` collection include fields such as
+  `ticketId`, `amount`, `status`, `senderName`, `paidAt`, `createdAt`,
+  etc.
+- The frontend is agnostic to the database implementation and never
+  embeds any Appwrite keys or SDK.
 
-> ⚠️ The project/collection IDs are public identifiers—not secrets. The
-> security relies on Appwrite’s ACLs and your server’s API key.
+> ⚠️ The only secret is the server’s Appwrite API key, which *must* remain
+> on the backend.  Project/collection IDs are public metadata.
 
 ## Realtime Robustness
 
