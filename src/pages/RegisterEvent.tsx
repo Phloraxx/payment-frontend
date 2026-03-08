@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import usePaymentSocket from '../hooks/usePaymentSocket';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -68,7 +68,6 @@ const RegisterEvent = () => {
     const [createdAt, setCreatedAt] = useState('');
     const [timeLeft, setTimeLeft] = useState(0);
     const [showAmountForm, setShowAmountForm] = useState(false);
-    const [docId, setDocId] = useState(''); // internal secure id from backend
 
     // new loading indicator flag
     const [isFetching, setIsFetching] = useState(false);
@@ -87,12 +86,11 @@ const RegisterEvent = () => {
 
         axios.get<StatusResponse>(`${API_URL}/status/${ticketId}`)
             .then(res => {
-                setDocId(res.data.id);
                 if (res.data.status === 'paid' || res.data.paidAt) {
                     setStatus('paid');
                     setCreatedAt(res.data.createdAt);
                     setAmount(String(res.data.amount));
-                    setUpiString(`upi://pay?pa=souravpbijoy-3@okaxis&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
+                    setUpiString(`upi://pay?pa=souravpbijoy-2@okicici&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
                     setTimeout(() => navigate(`/ticket/${res.data.ticketId}`), 1500);
                     return;
                 }
@@ -105,7 +103,7 @@ const RegisterEvent = () => {
                 // pending and still within window
                 setCreatedAt(res.data.createdAt);
                 setAmount(String(res.data.amount));
-                setUpiString(`upi://pay?pa=souravpbijoy-3@okaxis&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
+                setUpiString(`upi://pay?pa=souravpbijoy-2@okicici&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
                 setStatus('pending');
             })
             .catch(err => {
@@ -135,10 +133,7 @@ const RegisterEvent = () => {
             // build our own UPI string from the amount and human ticketId
             setCreatedAt(res.data.createdAt);
             setAmount(String(res.data.amount));
-            setDocId(res.data.id);
-            setUpiString(`upi://pay?pa=souravpbijoy-3@okaxis&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
-
-
+            setUpiString(`upi://pay?pa=souravpbijoy-2@okicici&am=${res.data.amount}&tn=${res.data.ticketId}&cu=INR&pn=IEEESahrdaya`);
             setSearchParams(prev => {
                 const newParams = new URLSearchParams(prev);
                 newParams.set('ticketId', res.data.ticketId);
@@ -480,9 +475,8 @@ const RegisterEvent = () => {
                                             </span>
                                             Awaiting Payment
                                         </div>
-                                        <div className={`flex items-center gap-1.5 text-sm font-mono font-semibold ${
-                                            timeLeft <= 60 ? 'text-red-500' : 'text-slate-500'
-                                        }`}>
+                                        <div className={`flex items-center gap-1.5 text-sm font-mono font-semibold ${timeLeft <= 60 ? 'text-red-500' : 'text-slate-500'
+                                            }`}>
                                             <Timer className="w-4 h-4" />
                                             {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
                                         </div>
