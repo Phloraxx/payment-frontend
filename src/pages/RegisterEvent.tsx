@@ -78,6 +78,7 @@ const RegisterEvent = () => {
         if (!ticketId) return;
 
         // clear stale UI and show loading placeholder
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setStatus('loading');
         setUpiString('');
         setAmount('');
@@ -113,7 +114,7 @@ const RegisterEvent = () => {
             .finally(() => {
                 setIsFetching(false);
             });
-    }, [ticketId]);
+    }, [ticketId, navigate]);
 
     const createTicket = async () => {
         // we will receive both internal id and ticketId
@@ -156,6 +157,7 @@ const RegisterEvent = () => {
         const remaining = TICKET_WINDOW_MS - timePassedMs;
 
         if (remaining <= 0) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setStatus('expired');
             return;
         }
@@ -183,6 +185,7 @@ const RegisterEvent = () => {
 
     useEffect(() => {
         if (paid) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setStatus('paid');
             setTimeout(() => navigate(`/ticket/${ticketId}`), 1500);
         }
