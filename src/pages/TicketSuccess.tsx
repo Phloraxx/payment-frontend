@@ -10,7 +10,8 @@ interface TicketDetails {
     ticketId: string;
     status: string;
     amount: number;
-    senderName: string;
+    senderName?: string;
+    upiId?: string;
 }
 
 const TicketSuccess = () => {
@@ -98,7 +99,12 @@ const TicketSuccess = () => {
                                 </div>
                                 <div className="text-left flex-1">
                                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Payer Identity</p>
-                                    <p className="text-sm font-semibold text-slate-900">{ticket.senderName || 'Authorized Entity'}</p>
+                                    <p className="text-sm font-semibold text-slate-900">
+                                        {ticket.senderName || ticket.upiId || 'Authorized Entity'}
+                                    </p>
+                                    {ticket.senderName && ticket.upiId && (
+                                        <p className="text-xs text-slate-500 mt-0.5">{ticket.upiId}</p>
+                                    )}
                                 </div>
                             </div>
 
