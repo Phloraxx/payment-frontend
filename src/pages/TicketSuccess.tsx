@@ -98,15 +98,26 @@ const TicketSuccess = () => {
                                     <User className="w-5 h-5 text-slate-900" />
                                 </div>
                                 <div className="text-left flex-1">
-                                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Payer Identity</p>
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sender Name</p>
                                     <p className="text-sm font-semibold text-slate-900">
-                                        {ticket.senderName || ticket.upiId || 'Authorized Entity'}
+                                        {ticket.senderName || 'Authorized Entity'}
                                     </p>
-                                    {ticket.senderName && ticket.upiId && (
-                                        <p className="text-xs text-slate-500 mt-0.5">{ticket.upiId}</p>
-                                    )}
                                 </div>
                             </div>
+
+                            {ticket.upiId && (
+                                <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
+                                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm">
+                                        <IdentificationCard className="w-5 h-5 text-slate-900" />
+                                    </div>
+                                    <div className="text-left flex-1">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">UPI ID</p>
+                                        <p className="text-sm font-semibold text-slate-900">
+                                            {ticket.upiId}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
                                 <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm">
