@@ -76,7 +76,7 @@ The high‑level flow is:
 - The frontend is agnostic to the database implementation and never
   embeds any Appwrite keys or SDK.
 
-> ⚠️ The only secret is the server’s Appwrite API key, which *must* remain
+> The only secret is the server’s Appwrite API key, which *must* remain
 > on the backend.  Project/collection IDs are public metadata.
 
 ## Realtime Robustness
