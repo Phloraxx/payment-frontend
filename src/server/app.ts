@@ -25,10 +25,15 @@ function errorBody(code: string, message: string) {
 
 function extractClientIp(c: Parameters<typeof getConnInfo>[0], trustProxyHeaders: boolean): string {
   if (trustProxyHeaders) {
-    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
-    if (forwarded && isIP(forwarded)) return forwarded;
-    const real = c.req.header('x-real-ip')?.trim();
-    if (real && isIP(real)) return real;
+    const forwarded = c.req.header('x-forwarded-for');
+    if (forwarded) {
+      const addresses = forwarded
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => isIP(value));
+      const boundaryAddress = addresses.at(-1);
+      if (boundaryAddress) return boundaryAddress;
+    }
   }
   return getConnInfo(c).remote.address ?? 'unknown';
 }
