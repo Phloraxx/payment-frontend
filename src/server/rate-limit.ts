@@ -20,6 +20,27 @@ export class FixedWindowLimiter {
     private readonly now: () => number = Date.now,
   ) {}
 
+  check(key: string): RateLimitDecision {
+    const now = this.now();
+    this.sweep(now);
+    const state = this.windows.get(key);
+    if (!state || state.resetAt <= now) {
+      return { allowed: true, remaining: this.limit, retryAfterSeconds: 0 };
+    }
+    if (state.count >= this.limit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: Math.max(1, Math.ceil((state.resetAt - now) / 1000)),
+      };
+    }
+    return {
+      allowed: true,
+      remaining: Math.max(0, this.limit - state.count),
+      retryAfterSeconds: 0,
+    };
+  }
+
   consume(key: string): RateLimitDecision {
     const now = this.now();
     this.sweep(now);
