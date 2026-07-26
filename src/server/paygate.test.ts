@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PayGateClient, PayGateError } from './paygate.js';
+import { PayGateClient } from './paygate.js';
 
 const payment = {
   id: 'abcdefghijklmno',
@@ -28,7 +28,7 @@ describe('PayGateClient', () => {
   it('rejects malformed upstream payment data', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ...payment, payableAmountPaise: 10000 }), { status: 200 }));
     const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
-    await expect(client.getPayment(payment.id)).rejects.toMatchObject<Partial<PayGateError>>({
+    await expect(client.getPayment(payment.id)).rejects.toMatchObject({
       code: 'INVALID_UPSTREAM_RESPONSE',
       status: 502,
     });
