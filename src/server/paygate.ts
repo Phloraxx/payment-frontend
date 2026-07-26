@@ -1,0 +1,105 @@
+import { isPublicPayment, type PublicPayment } from '../shared/payment.js';
+
+const REQUEST_TIMEOUT_MS = 8_000;
+const MAX_ERROR_MESSAGE_LENGTH = 240;
+
+export class PayGateError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+interface PayGateErrorPayload {
+  code?: unknown;
+  message?: unknown;
+}
+
+function safeErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const clean = value.replace(/[\r\n\t]+/g, ' ').trim();
+  if (!clean) return fallback;
+  return clean.slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+function normalisePayment(value: unknown): PublicPayment {
+  if (!isPublicPayment(value)) {
+    throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate returned an invalid payment response.');
+  }
+  return value;
+}
+
+export class PayGateClient {
+  constructor(
+    private readonly baseUrl: string,
+    private readonly apiKey: string,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
+  async createPayment(amount: number, idempotencyKey: string): Promise<PublicPayment> {
+    const response = await this.request('/api/payments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({ amount }),
+    });
+    return normalisePayment(await response.json());
+  }
+
+  async getPayment(id: string): Promise<PublicPayment> {
+    const response = await this.request(`/api/payments/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    return normalisePayment(await response.json());
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      const response = await this.request('/api/paygate/health', { method: 'GET' }, false);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  private async request(path: string, init: RequestInit, translateErrors = true): Promise<Response> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        redirect: 'error',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      throw new PayGateError(502, 'PAYGATE_UNAVAILABLE', 'Payment service is temporarily unavailable.');
+    }
+
+    if (response.ok || !translateErrors) return response;
+
+    let payload: PayGateErrorPayload = {};
+    try {
+      payload = (await response.json()) as PayGateErrorPayload;
+    } catch {
+      // Keep the safe generic message below.
+    }
+
+    const upstreamStatus = response.status;
+    // Authentication failures indicate a server configuration problem and
+    // should not expose the upstream credential boundary to public callers.
+    const safeStatus = upstreamStatus >= 400 && upstreamStatus < 500 && ![401, 403].includes(upstreamStatus) ? upstreamStatus : 502;
+    const code = typeof payload.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(payload.code) ? payload.code : 'PAYGATE_REQUEST_FAILED';
+    const fallback = safeStatus === 429 ? 'Too many payment requests. Please wait and try again.' : 'Payment request failed.';
+    const publicCode = [401, 403].includes(upstreamStatus) ? 'PAYGATE_UNAVAILABLE' : code;
+    const publicMessage = [401, 403].includes(upstreamStatus)
+      ? 'Payment service is temporarily unavailable.'
+      : safeErrorMessage(payload.message, fallback);
+    throw new PayGateError(safeStatus, publicCode, publicMessage);
+  }
+}

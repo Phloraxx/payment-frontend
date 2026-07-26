@@ -1,121 +1,77 @@
-# Payment Portal Architecture & Logic
+# payment-frontend
 
-This repository implements a simple ticketing/payment portal using a
-**React/TypeScript** frontend hosted by Vite and a **Cloudflare Workers**
-backend.  (Appwrite is used on the backend for storage, but the frontend
-no longer imports the Appwrite SDK; real‑time events flow through a
-custom WebSocket proxy.)
+A small proof-of-concept UPI checkout for PayGate.
 
-The high‑level flow is:
+## Architecture
 
-1. User opens `/register?ticketId=…` or generates a new ticket with an
-   amount.
-2. Frontend calls `/api/ticket` to create a document in the backend
-   database (Appwrite under the hood) and receives both an internal
-   document ID and a human‑readable ticket ID.
-3. A UPI QR code is shown; the user scans and pays.
-4. When the SMS forwarder detects the payment it POSTs to
-   `/api/webhook`, which updates the Appwrite document to `paid`.
-5. The frontend, which has opened a secure WebSocket to the backend
-   proxy, immediately transitions to the **paid** state and navigates to
-   the ticket page.
+- React + Vite browser UI.
+- Hono + Node server in the same container.
+- Deployed as one Dockerfile application in Dokploy.
+- The browser never receives `PAYGATE_API_KEY`.
+- The Hono server talks to PayGate through `PAYGATE_URL` over normal HTTPS.
+- Payment status uses smart polling only: every 2 seconds while the tab is visible, immediate refresh when the tab becomes visible again, and polling stops at a terminal state.
+- No database, WebSocket, SSE, webhook receiver, Appwrite, Redis or Cloudflare runtime.
 
-## Components
+PayGate remains the source of truth for payment state, DDM allocation, expiry and bank evidence.
 
-### Frontend (`src/pages/RegisterEvent.tsx`)
+## Local development
 
-- **State** tracks `status`, `amount`, `docId`, `ticketId`, `upiString`,
-  and a countdown timer based on the server’s `createdAt`.
-- **Ticket creation**: POST `/api/ticket` with `{ amount }`. Response
-  provides `{ id, ticketId, amount, createdAt }`. The `id` is kept in
-  `docId` and used for secure subscriptions.
-- **UPI URI** is built locally from the human ticket ID and amount. The
-  QR code doesn’t leak the amount in the URL query string.
-- **Realtime subscription**: opens a WebSocket to
-  `databases.<DB>.collections.<COL>.documents.<docId>`. When an event with
-  `status: "paid"` arrives, the UI updates and the user is redirected.
-- **Race handling**: early versions used Appwrite’s SDK and needed a
-  patch; the current WebSocket proxy sends clean `payment_update`
-  messages so no workaround is required.
-- **Expiration**: ticket is valid for 5 minutes (server time) then
-  transitions to `expired` automatically.
+Copy `.env.example` to `.env` and set a real PayGate API key.
 
-### Backend (Cloudflare Workers)
+Run the API server and Vite in separate terminals:
 
-#### 1. `POST /api/ticket`
-- Generates a unique `ticketId` (e.g. `TICKET${Date.now()}`).
-- Inserts a document into Appwrite using the server SDK:
-  ```js
-  await databases.createDocument(DB, COL, ID.random(), {
-      ticketId, amount, status: 'pending', createdAt: new Date().toISOString()
-  }, [Permission.read(Role.any())]);
-  ```
-- Returns the Appwrite `id` and `ticketId` to the client.
-
-#### 2. `POST /api/webhook?secret=…`
-- Validates secret query string.
-- Extracts text from `sms`/`body`/`message` and uses regex
-  `/([A-Z0-9]+).*₹(\d+)/` to pull ticketId and amount.
-- Loads the corresponding Appwrite document and compares amounts.
-- If matching and not already paid, updates `{ status: 'paid', senderName }`.
-- Appwrite update triggers realtime events to all subscribed clients.
-
-#### 3. `GET /api/status/:id`
-- Retrieves the document by `ticketId` (not internal ID) for public
-  status checks.  This endpoint is rate‑limited by Cloudflare and is used
-  by the frontend as a backup.
-
-### Backend Configuration (Appwrite)
-
-- The Cloudflare Workers backend uses Appwrite for persistent storage;
-  the frontend interacts with it only via `/api/*` endpoints and a
-  WebSocket proxy.
-- Documents in the `payment` collection include fields such as
-  `ticketId`, `amount`, `status`, `senderName`, `paidAt`, `createdAt`,
-  etc.
-- The frontend is agnostic to the database implementation and never
-  embeds any Appwrite keys or SDK.
-
-> The only secret is the server’s Appwrite API key, which *must* remain
-> on the backend.  Project/collection IDs are public metadata.
-
-## Realtime Robustness
-
-Appwrite’s JS SDK expects incoming event frames to include a
-`subscriptions` array. When the backend sends frames without that field,
-the SDK silently drops them, causing missed updates.  To guard against
-that we patch the `Realtime` instance at startup:
-
-```ts
-(function patchRealtime() {
-  const r: any = realtime;
-  if (r?.handleResponseEvent) { ... }
-})();
+```bash
+npm run dev:server
+npm run dev:client
 ```
 
-This fallback simply delivers events by channel name if the array is
-missing.  It’s harmless and can be left in production.
+Vite proxies `/api/*` to the Hono server on port 3000.
 
-## Deployment
+## Production
 
-- Frontend: any static host that can serve the built Vite output.
-- Backend: `npx wrangler deploy` to push the Workers code.
-- Appwrite: ensure CORS/origin settings allow the frontend domain and
-  that realtime tokens are valid.
+Required environment variables:
 
-## Security Considerations
+```env
+PAYGATE_URL=https://pay.mulearnscet.in
+PAYGATE_API_KEY=<strong PayGate API key>
+PORT=3000
+TRUST_PROXY_HEADERS=true
+```
 
-- Never embed Appwrite API keys in the frontend.
-- Use `read("any")` only for non‑sensitive public tickets; otherwise
-  scope ACLs by user.
-- All communication is over TLS (`https`/`wss`).
+Optional creation-rate-limit settings:
 
-## Usage Notes
+```env
+PAYMENT_CREATE_LIMIT=5
+PAYMENT_CREATE_WINDOW_SECONDS=300
+PAYMENT_CREATE_GLOBAL_LIMIT=60
+PAYMENT_CREATE_GLOBAL_WINDOW_SECONDS=60
+```
 
-- QR code encodes `upi://pay?pa=souravpbijoy-3@oksbi&am={amount}&tn={ticketId}&cu=INR`.
-- The amount is parsed from the upi string on resume; user doesn’t need
-  to re‑enter it.
-- Countdown and expiration are driven by the server’s `createdAt` time
-  (client clocks may differ).
+`TRUST_PROXY_HEADERS=true` should only be used when the application is reachable through a trusted reverse proxy such as the Dokploy-managed Traefik service. Do not directly publish the container port while trusting client-supplied forwarded headers.
 
-Happy hacking!
+## Payment flow
+
+1. Browser sends a whole-rupee amount and a UUID idempotency key to `POST /api/payments`.
+2. Hono validates and rate-limits the request, then calls PayGate with the server-side API key.
+3. PayGate returns the exact DDM amount and authoritative UPI URI.
+4. The browser renders the QR and stores only the non-sensitive payment session data locally so a same-browser refresh can restore the QR.
+5. The browser polls `GET /api/payments/:id` every 2 seconds while visible.
+6. PayGate public status intentionally exposes no RRN, payer UPI ID, payer name or raw SMS.
+
+The local session cache contains only the payment ID, amounts, expiry and UPI URI; it is removed when the payment reaches a terminal state and expires automatically after 24 hours.
+
+The browser also retains the current amount + idempotency UUID in per-tab `sessionStorage` for up to 15 minutes until creation succeeds. This means a retry after a lost HTTP response asks PayGate for the same payment instead of reserving a second DDM amount, without coupling separate tabs to one checkout attempt.
+
+`GET /api/health` is frontend liveness only and deliberately stays healthy during a temporary PayGate outage. `GET /api/readiness` additionally reports whether PayGate is reachable.
+
+## Checks
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm audit --audit-level=high
+
+docker build -t payment-frontend .
+```
