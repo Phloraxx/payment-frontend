@@ -13,6 +13,8 @@ describe('loadConfig', () => {
     expect(config.port).toBe(3000);
     expect(config.trustProxyHeaders).toBe(false);
     expect(config.creationRateLimit).toBe(5);
+    expect(config.statusRateLimit).toBe(180);
+    expect(config.globalStatusRateLimit).toBe(1800);
   });
 
   it('rejects missing or weak API keys', () => {
@@ -25,5 +27,6 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...goodEnv, PAYGATE_URL: 'ftp://pay.example.com' })).toThrow(/http or https/);
     expect(() => loadConfig({ ...goodEnv, PAYGATE_URL: 'https://user:pass@pay.example.com/api?x=1' })).toThrow(/must be an origin/);
     expect(() => loadConfig({ ...goodEnv, PORT: '70000' })).toThrow(/1 and 65535/);
+    expect(() => loadConfig({ ...goodEnv, PAYMENT_STATUS_LIMIT: '0' })).toThrow(/positive integer/);
   });
 });
