@@ -114,15 +114,6 @@ export function createApiApp(deps: AppDependencies): Hono {
       onError: (c) => c.json(errorBody('REQUEST_TOO_LARGE', 'Request body is too large.'), 413),
     }),
     async (c) => {
-      const ip = extractClientIp(c, deps.config.trustProxyHeaders);
-      const global = deps.globalLimiter.consume('global');
-      const perIp = deps.perIpLimiter.consume(ip);
-      if (!global.allowed || !perIp.allowed) {
-        const retryAfter = Math.max(global.retryAfterSeconds, perIp.retryAfterSeconds);
-        c.header('Retry-After', String(retryAfter));
-        return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
-      }
-
       if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
         return c.json(errorBody('INVALID_CONTENT_TYPE', 'Content-Type must be application/json.'), 415);
       }
@@ -139,6 +130,18 @@ export function createApiApp(deps: AppDependencies): Hono {
           errorBody('INVALID_REQUEST', 'Amount must be a positive whole number of rupees and requestId must be a UUID.'),
           400,
         );
+      }
+
+      // Only well-formed payment attempts consume creation quota. Body size and
+      // schema checks above are cheap, while the limiter protects the scarce DDM
+      // allocation path from valid-looking automated requests.
+      const ip = extractClientIp(c, deps.config.trustProxyHeaders);
+      const global = deps.globalLimiter.consume('global');
+      const perIp = deps.perIpLimiter.consume(ip);
+      if (!global.allowed || !perIp.allowed) {
+        const retryAfter = Math.max(global.retryAfterSeconds, perIp.retryAfterSeconds);
+        c.header('Retry-After', String(retryAfter));
+        return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
       }
 
       try {
@@ -169,6 +172,7 @@ export function createApiApp(deps: AppDependencies): Hono {
     }
   });
 
+  app.all('/api', (c) => c.json(errorBody('NOT_FOUND', 'API route not found.'), 404));
   app.all('/api/*', (c) => c.json(errorBody('NOT_FOUND', 'API route not found.'), 404));
 
   app.onError((error, c) => {
