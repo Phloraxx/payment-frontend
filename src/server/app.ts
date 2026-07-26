@@ -7,16 +7,18 @@ import { isIP } from 'node:net';
 import type { CreatePaymentRequest } from '../shared/payment.js';
 import type { ServerConfig } from './config.js';
 import { PayGateClient, PayGateError } from './paygate.js';
-import { FixedWindowLimiter } from './rate-limit.js';
+import { FixedWindowLimiter, type RateLimitDecision } from './rate-limit.js';
 
 const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAYMENT_ID_RE = /^[a-z0-9_-]{8,64}$/i;
 
 export interface AppDependencies {
   config: ServerConfig;
-  payGate: Pick<PayGateClient, 'createPayment' | 'getPayment' | 'checkHealth'>;
-  perIpLimiter: FixedWindowLimiter;
-  globalLimiter: FixedWindowLimiter;
+  payGate: Pick<PayGateClient, 'createPayment' | 'getPayment'>;
+  createPerIpLimiter: FixedWindowLimiter;
+  createGlobalLimiter: FixedWindowLimiter;
+  statusPerIpLimiter: FixedWindowLimiter;
+  statusGlobalLimiter: FixedWindowLimiter;
 }
 
 function errorBody(code: string, message: string) {
@@ -36,6 +38,20 @@ function extractClientIp(c: Parameters<typeof getConnInfo>[0], trustProxyHeaders
     }
   }
   return getConnInfo(c).remote.address ?? 'unknown';
+}
+
+function takeScopedQuota(
+  perIpLimiter: FixedWindowLimiter,
+  globalLimiter: FixedWindowLimiter,
+  clientIp: string,
+): RateLimitDecision | null {
+  const perIp = perIpLimiter.check(clientIp);
+  if (!perIp.allowed) return perIp;
+  const global = globalLimiter.check('global');
+  if (!global.allowed) return global;
+  perIpLimiter.consume(clientIp);
+  globalLimiter.consume('global');
+  return null;
 }
 
 function parseCreateBody(value: unknown): CreatePaymentRequest | null {
@@ -103,14 +119,9 @@ export function createApiApp(deps: AppDependencies): Hono {
     await next();
   });
 
-  // Liveness is intentionally independent of PayGate. A temporary upstream
-  // outage should not cause Dokploy/Docker to restart an otherwise healthy UI.
+  // Liveness is local only. A temporary PayGate outage should not cause
+  // Dokploy/Docker to restart an otherwise healthy frontend container.
   app.get('/api/health', (c) => c.json({ status: 'ok' }));
-
-  app.get('/api/readiness', async (c) => {
-    const payGate = await deps.payGate.checkHealth();
-    return c.json({ status: 'ok', payGate: payGate ? 'reachable' : 'unreachable' }, payGate ? 200 : 503);
-  });
 
   app.post(
     '/api/payments',
@@ -137,22 +148,12 @@ export function createApiApp(deps: AppDependencies): Hono {
         );
       }
 
-      // Only well-formed payment attempts consume quota. Check both scopes
-      // first, then charge both together so a client rejected by one scope
-      // cannot burn the other scope's allowance.
-      const ip = extractClientIp(c, deps.config.trustProxyHeaders);
-      const perIpCheck = deps.perIpLimiter.check(ip);
-      if (!perIpCheck.allowed) {
-        c.header('Retry-After', String(perIpCheck.retryAfterSeconds));
+      const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+      const denied = takeScopedQuota(deps.createPerIpLimiter, deps.createGlobalLimiter, clientIp);
+      if (denied) {
+        c.header('Retry-After', String(denied.retryAfterSeconds));
         return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
       }
-      const globalCheck = deps.globalLimiter.check('global');
-      if (!globalCheck.allowed) {
-        c.header('Retry-After', String(globalCheck.retryAfterSeconds));
-        return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
-      }
-      deps.perIpLimiter.consume(ip);
-      deps.globalLimiter.consume('global');
 
       try {
         const payment = await deps.payGate.createPayment(body.amount, body.requestId);
@@ -171,6 +172,14 @@ export function createApiApp(deps: AppDependencies): Hono {
     if (!PAYMENT_ID_RE.test(id)) {
       return c.json(errorBody('INVALID_PAYMENT_ID', 'Invalid payment ID.'), 400);
     }
+
+    const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+    const denied = takeScopedQuota(deps.statusPerIpLimiter, deps.statusGlobalLimiter, clientIp);
+    if (denied) {
+      c.header('Retry-After', String(denied.retryAfterSeconds));
+      return c.json(errorBody('RATE_LIMITED', 'Too many payment status requests. Please wait and try again.'), 429);
+    }
+
     try {
       const payment = await deps.payGate.getPayment(id);
       return c.json(payment);
