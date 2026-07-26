@@ -32,6 +32,16 @@ function normalisePayment(value: unknown): PublicPayment {
   return value;
 }
 
+async function readPaymentResponse(response: Response): Promise<PublicPayment> {
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate returned an invalid payment response.');
+  }
+  return normalisePayment(value);
+}
+
 export class PayGateClient {
   constructor(
     private readonly baseUrl: string,
@@ -49,7 +59,7 @@ export class PayGateClient {
       },
       body: JSON.stringify({ amount }),
     });
-    const payment = normalisePayment(await response.json());
+    const payment = await readPaymentResponse(response);
     if (!payment.upiUri) {
       throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate did not provide a UPI URI for the new payment.');
     }
@@ -61,7 +71,7 @@ export class PayGateClient {
       method: 'GET',
       headers: { Accept: 'application/json' },
     });
-    return normalisePayment(await response.json());
+    return readPaymentResponse(response);
   }
 
   async checkHealth(): Promise<boolean> {
