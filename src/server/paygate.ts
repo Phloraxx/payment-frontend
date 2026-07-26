@@ -49,7 +49,11 @@ export class PayGateClient {
       },
       body: JSON.stringify({ amount }),
     });
-    return normalisePayment(await response.json());
+    const payment = normalisePayment(await response.json());
+    if (!payment.upiUri) {
+      throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate did not provide a UPI URI for the new payment.');
+    }
+    return payment;
   }
 
   async getPayment(id: string): Promise<PublicPayment> {
