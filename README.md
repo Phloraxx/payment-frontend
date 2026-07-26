@@ -35,7 +35,7 @@ Required environment variables:
 PAYGATE_URL=https://pay.mulearnscet.in
 PAYGATE_API_KEY=<strong PayGate API key>
 PORT=3000
-TRUST_PROXY_HEADERS=true
+TRUST_PROXY_HEADERS=false
 ```
 
 Optional creation-rate-limit settings:
@@ -47,7 +47,7 @@ PAYMENT_CREATE_GLOBAL_LIMIT=60
 PAYMENT_CREATE_GLOBAL_WINDOW_SECONDS=60
 ```
 
-`TRUST_PROXY_HEADERS=true` should only be used when the application is reachable through a trusted reverse proxy such as the Dokploy-managed Traefik service. Do not directly publish the container port while trusting client-supplied forwarded headers.
+Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only through a trusted reverse proxy. For the Dokploy/Traefik deployment it may be set to `true` only after verifying that Traefik appends its observed client `RemoteAddr` to `X-Forwarded-For` and the container port is not directly exposed. In proxy mode the app deliberately uses the rightmost valid `X-Forwarded-For` address so a client-supplied leftmost value cannot select its rate-limit identity.
 
 ## Payment flow
 
