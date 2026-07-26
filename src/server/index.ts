@@ -13,8 +13,10 @@ const payGate = new PayGateClient(config.payGateUrl, config.payGateApiKey);
 const app = createApiApp({
   config,
   payGate,
-  perIpLimiter: new FixedWindowLimiter(config.creationRateLimit, config.creationWindowMs),
-  globalLimiter: new FixedWindowLimiter(config.globalCreationRateLimit, config.globalCreationWindowMs),
+  createPerIpLimiter: new FixedWindowLimiter(config.creationRateLimit, config.creationWindowMs),
+  createGlobalLimiter: new FixedWindowLimiter(config.globalCreationRateLimit, config.globalCreationWindowMs),
+  statusPerIpLimiter: new FixedWindowLimiter(config.statusRateLimit, config.statusWindowMs),
+  statusGlobalLimiter: new FixedWindowLimiter(config.globalStatusRateLimit, config.globalStatusWindowMs),
 });
 
 const clientDir = resolve(process.cwd(), 'dist/client');
