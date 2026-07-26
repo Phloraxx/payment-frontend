@@ -7,6 +7,10 @@ export interface ServerConfig {
   creationWindowMs: number;
   globalCreationRateLimit: number;
   globalCreationWindowMs: number;
+  statusRateLimit: number;
+  statusWindowMs: number;
+  globalStatusRateLimit: number;
+  globalStatusWindowMs: number;
 }
 
 function required(name: string, env: NodeJS.ProcessEnv): string {
@@ -71,6 +75,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     globalCreationWindowMs: parseWindowMs(
       'PAYMENT_CREATE_GLOBAL_WINDOW_SECONDS',
       env.PAYMENT_CREATE_GLOBAL_WINDOW_SECONDS,
+      60,
+    ),
+    statusRateLimit: parsePositiveInt('PAYMENT_STATUS_LIMIT', env.PAYMENT_STATUS_LIMIT, 180),
+    statusWindowMs: parseWindowMs('PAYMENT_STATUS_WINDOW_SECONDS', env.PAYMENT_STATUS_WINDOW_SECONDS, 60),
+    globalStatusRateLimit: parsePositiveInt('PAYMENT_STATUS_GLOBAL_LIMIT', env.PAYMENT_STATUS_GLOBAL_LIMIT, 1800),
+    globalStatusWindowMs: parseWindowMs(
+      'PAYMENT_STATUS_GLOBAL_WINDOW_SECONDS',
+      env.PAYMENT_STATUS_GLOBAL_WINDOW_SECONDS,
       60,
     ),
   };
