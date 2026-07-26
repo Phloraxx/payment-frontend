@@ -66,6 +66,7 @@ function PendingPayment({
   onRefresh: () => Promise<void>;
 }) {
   const secondsLeft = useCountdown(payment.expiresAt);
+  const locallyExpired = secondsLeft <= 0;
   const qrContainer = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
@@ -77,7 +78,7 @@ function PendingPayment({
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard access may be unavailable in some browsers; the amount is
-      // still prominently visible and can be copied manually.
+      // still prominently visible while the payment window is active.
     }
   };
 
@@ -100,60 +101,88 @@ function PendingPayment({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Payment session</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-[-0.035em] text-slate-950">Pay exactly</h2>
+            <h2 className="mt-2 text-2xl font-bold tracking-[-0.035em] text-slate-950">
+              {locallyExpired ? 'Payment window ended' : 'Pay exactly'}
+            </h2>
           </div>
-          <StatusBadge status="pending" refreshing={refreshing} />
-        </div>
-
-        <div className="mt-5 flex items-end justify-between gap-3" aria-live="polite">
-          <p className="text-4xl font-bold tracking-[-0.05em] text-slate-950">{formatRupeesFromPaise(payment.payableAmountPaise)}</p>
-          <button onClick={copyAmount} className="button-icon" aria-label="Copy exact amount" title="Copy exact amount">
-            {copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-          </button>
-        </div>
-
-        {payment.upiUri ? (
-          <>
-            <div ref={qrContainer} id="qr-code-container" className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <QRCodeSVG value={payment.upiUri} level="M" size={250} className="h-full w-full" bgColor="#ffffff" fgColor="#0f172a" />
+          {locallyExpired ? (
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800">
+              <Hourglass className="h-4 w-4" />
+              Awaiting final status
             </div>
+          ) : (
+            <StatusBadge status="pending" refreshing={refreshing} />
+          )}
+        </div>
 
-            <a href={payment.upiUri} className="button-primary mt-6">
-              <ArrowSquareOut className="h-5 w-5" />
-              Open UPI app
-            </a>
-          </>
-        ) : (
-          <div className="mt-7 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-center">
-            <QrCode className="mx-auto h-8 w-8 text-amber-700" />
-            <p className="mt-3 font-semibold text-amber-900">QR unavailable after this session was restored</p>
-            <p className="mt-1 text-sm leading-relaxed text-amber-700">
-              Status checking still works. Create a new payment if you need the QR again.
+        {locallyExpired ? (
+          <div className="mt-7 rounded-3xl border border-orange-200 bg-orange-50 p-5 text-center">
+            <Hourglass className="mx-auto h-9 w-9 text-orange-700" />
+            <p className="mt-3 font-semibold text-orange-950">Do not send this payment now</p>
+            <p className="mt-2 text-sm leading-relaxed text-orange-800">
+              The payment window has ended, so the QR and UPI action have been disabled. We are still checking PayGate for the authoritative final status.
             </p>
           </div>
+        ) : (
+          <>
+            <div className="mt-5 flex items-end justify-between gap-3" aria-live="polite">
+              <p className="text-4xl font-bold tracking-[-0.05em] text-slate-950">{formatRupeesFromPaise(payment.payableAmountPaise)}</p>
+              <button onClick={copyAmount} className="button-icon" aria-label="Copy exact amount" title="Copy exact amount">
+                {copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
+              </button>
+            </div>
+
+            {payment.upiUri ? (
+              <>
+                <div ref={qrContainer} id="qr-code-container" className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <QRCodeSVG value={payment.upiUri} level="M" size={250} className="h-full w-full" bgColor="#ffffff" fgColor="#0f172a" />
+                </div>
+
+                <a href={payment.upiUri} className="button-primary mt-6">
+                  <ArrowSquareOut className="h-5 w-5" />
+                  Open UPI app
+                </a>
+              </>
+            ) : (
+              <div className="mt-7 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-center">
+                <QrCode className="mx-auto h-8 w-8 text-amber-700" />
+                <p className="mt-3 font-semibold text-amber-900">QR unavailable after this session was restored</p>
+                <p className="mt-1 text-sm leading-relaxed text-amber-700">
+                  Status checking still works. Create a new payment if you need the QR again.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <Detail label="Requested" value={formatRupeesFromPaise(payment.requestedAmountPaise)} />
+              <Detail label="Verification" value={`+${formatRupeesFromPaise(adjustment)}`} />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-600">
+              The extra paise identifies this payment. <strong className="font-semibold text-slate-900">Do not change the amount</strong> in your UPI app.
+            </div>
+          </>
         )}
-
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <Detail label="Requested" value={formatRupeesFromPaise(payment.requestedAmountPaise)} />
-          <Detail label="Verification" value={`+${formatRupeesFromPaise(adjustment)}`} />
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-600">
-          The extra paise identifies this payment. <strong className="font-semibold text-slate-900">Do not change the amount</strong> in your UPI app.
-        </div>
 
         <div className="mt-5 flex items-center justify-between border-t border-dashed border-slate-200 pt-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Time remaining</p>
             <p className="mt-1 font-mono text-xl font-semibold text-slate-900">{formatCountdown(secondsLeft)}</p>
           </div>
-          {payment.upiUri && (
+          {!locallyExpired && payment.upiUri && (
             <button onClick={downloadQr} className="button-secondary !w-auto !px-4">
               <DownloadSimple className="h-4 w-4" />
               Save QR
             </button>
           )}
         </div>
+
+        {locallyExpired && (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Requested amount</p>
+            <p className="mt-1 text-base font-semibold text-slate-900">{formatRupeesFromPaise(payment.requestedAmountPaise)}</p>
+          </div>
+        )}
 
         {error && (
           <div role="status" className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
