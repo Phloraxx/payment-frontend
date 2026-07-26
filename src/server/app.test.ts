@@ -27,7 +27,7 @@ const config: ServerConfig = {
   globalCreationWindowMs: 60_000,
 };
 
-function makeApp(limit = 5) {
+function makeApp({ perIpLimit = 5, globalLimit = 60 } = {}) {
   const payGate = {
     createPayment: vi.fn().mockResolvedValue(payment),
     getPayment: vi.fn().mockResolvedValue(payment),
@@ -36,8 +36,8 @@ function makeApp(limit = 5) {
   const app = createApiApp({
     config,
     payGate,
-    perIpLimiter: new FixedWindowLimiter(limit, 300_000),
-    globalLimiter: new FixedWindowLimiter(60, 60_000),
+    perIpLimiter: new FixedWindowLimiter(perIpLimit, 300_000),
+    globalLimiter: new FixedWindowLimiter(globalLimit, 60_000),
   });
   return { app, payGate };
 }
@@ -47,13 +47,17 @@ const headers = {
   'x-forwarded-for': '203.0.113.10',
 };
 
+function createBody(requestId: string, amount = 100) {
+  return JSON.stringify({ amount, requestId });
+}
+
 describe('API', () => {
   it('creates only whole-rupee payments with a UUID', async () => {
     const { app, payGate } = makeApp();
     const response = await app.request('/api/payments', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ amount: 100, requestId: '11111111-1111-4111-8111-111111111111' }),
+      body: createBody('11111111-1111-4111-8111-111111111111'),
     });
     expect(response.status).toBe(201);
     expect(payGate.createPayment).toHaveBeenCalledWith(100, '11111111-1111-4111-8111-111111111111');
@@ -61,7 +65,7 @@ describe('API', () => {
     const invalid = await app.request('/api/payments', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ amount: 100.01, requestId: '11111111-1111-4111-8111-111111111111' }),
+      body: createBody('11111111-1111-4111-8111-111111111111', 100.01),
     });
     expect(invalid.status).toBe(400);
 
@@ -73,24 +77,43 @@ describe('API', () => {
     expect(unknownField.status).toBe(400);
   });
 
-  it('enforces per-IP creation limits without charging malformed requests', async () => {
-    const { app } = makeApp(1);
+  it('does not let a throttled IP consume the shared creation quota', async () => {
+    const { app } = makeApp({ perIpLimit: 1, globalLimit: 2 });
+
     const malformed = await app.request('/api/payments', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ amount: 100.5, requestId: '11111111-1111-4111-8111-111111111111' }),
+      body: createBody('11111111-1111-4111-8111-111111111111', 100.5),
     });
     expect(malformed.status).toBe(400);
 
-    const init = {
+    expect((await app.request('/api/payments', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ amount: 100, requestId: '11111111-1111-4111-8111-111111111111' }),
-    };
-    expect((await app.request('/api/payments', init)).status).toBe(201);
-    const blocked = await app.request('/api/payments', { ...init, body: JSON.stringify({ amount: 100, requestId: '22222222-2222-4222-8222-222222222222' }) });
-    expect(blocked.status).toBe(429);
-    expect(blocked.headers.get('retry-after')).toBeTruthy();
+      body: createBody('11111111-1111-4111-8111-111111111111'),
+    })).status).toBe(201);
+
+    const blockedSameIp = await app.request('/api/payments', {
+      method: 'POST',
+      headers,
+      body: createBody('22222222-2222-4222-8222-222222222222'),
+    });
+    expect(blockedSameIp.status).toBe(429);
+    expect(blockedSameIp.headers.get('retry-after')).toBeTruthy();
+
+    const secondIpHeaders = { ...headers, 'x-forwarded-for': '203.0.113.11' };
+    expect((await app.request('/api/payments', {
+      method: 'POST',
+      headers: secondIpHeaders,
+      body: createBody('33333333-3333-4333-8333-333333333333'),
+    })).status).toBe(201);
+
+    const thirdIpHeaders = { ...headers, 'x-forwarded-for': '203.0.113.12' };
+    expect((await app.request('/api/payments', {
+      method: 'POST',
+      headers: thirdIpHeaders,
+      body: createBody('44444444-4444-4444-8444-444444444444'),
+    })).status).toBe(429);
   });
 
   it('keeps status responses uncached and unknown API paths as JSON 404', async () => {
