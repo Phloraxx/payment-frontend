@@ -38,13 +38,18 @@ PORT=3000
 TRUST_PROXY_HEADERS=false
 ```
 
-Optional creation-rate-limit settings:
+Optional rate-limit settings:
 
 ```env
 PAYMENT_CREATE_LIMIT=5
 PAYMENT_CREATE_WINDOW_SECONDS=300
 PAYMENT_CREATE_GLOBAL_LIMIT=60
 PAYMENT_CREATE_GLOBAL_WINDOW_SECONDS=60
+
+PAYMENT_STATUS_LIMIT=180
+PAYMENT_STATUS_WINDOW_SECONDS=60
+PAYMENT_STATUS_GLOBAL_LIMIT=1800
+PAYMENT_STATUS_GLOBAL_WINDOW_SECONDS=60
 ```
 
 Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only through a trusted reverse proxy. For the Dokploy/Traefik deployment it may be set to `true` only after verifying that Traefik appends its observed client `RemoteAddr` to `X-Forwarded-For` and the container port is not directly exposed. In proxy mode the app deliberately uses the rightmost valid `X-Forwarded-For` address so a client-supplied leftmost value cannot select its rate-limit identity.
@@ -55,14 +60,14 @@ Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only throug
 2. Hono validates and rate-limits the request, then calls PayGate with the server-side API key.
 3. PayGate returns the exact DDM amount and authoritative UPI URI.
 4. The browser renders the QR and stores only the non-sensitive payment session data locally so a same-browser refresh can restore the QR.
-5. The browser polls `GET /api/payments/:id` every 2 seconds while visible.
+5. The browser polls `GET /api/payments/:id` every 2 seconds while visible. Status proxying has separate generous per-IP and global limits so normal polling is unaffected while arbitrary callers cannot generate unbounded PayGate traffic.
 6. PayGate public status intentionally exposes no RRN, payer UPI ID, payer name or raw SMS.
 
 The local session cache contains only the payment ID, amounts, expiry and UPI URI; it is removed when the payment reaches a terminal state and expires automatically after 24 hours.
 
 The browser also retains the current amount + idempotency UUID in per-tab `sessionStorage` for up to 15 minutes until creation succeeds. This means a retry after a lost HTTP response asks PayGate for the same payment instead of reserving a second DDM amount, without coupling separate tabs to one checkout attempt.
 
-`GET /api/health` is frontend liveness only and deliberately stays healthy during a temporary PayGate outage. `GET /api/readiness` additionally reports whether PayGate is reachable.
+When the local `expiresAt` deadline passes, the UI immediately removes the QR and all payment actions even if PayGate is temporarily unreachable; background polling continues only to learn the authoritative terminal state. `GET /api/health` is local frontend liveness only and deliberately does not proxy an upstream health request.
 
 ## Checks
 
