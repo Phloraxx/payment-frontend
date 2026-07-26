@@ -39,6 +39,17 @@ describe('PayGateClient', () => {
     await expect(statusClient.getPayment(payment.id)).resolves.toMatchObject({ id: payment.id, status: 'pending' });
   });
 
+  it('translates malformed successful JSON into an upstream 502', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('{not-json', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
+    await expect(client.getPayment(payment.id)).rejects.toMatchObject({
+      code: 'INVALID_UPSTREAM_RESPONSE',
+      status: 502,
+    });
+  });
+
   it('rejects malformed upstream payment data', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ...payment, payableAmountPaise: 10000 }), { status: 200 }));
     const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
