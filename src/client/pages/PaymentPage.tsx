@@ -169,6 +169,8 @@ function PendingPayment({
 }
 
 function ResolvedPayment({ payment }: { payment: PublicPayment }) {
+  if (payment.status === 'pending') return null;
+
   const content = {
     paid: {
       icon: <CheckCircle weight="fill" className="h-11 w-11" />,
