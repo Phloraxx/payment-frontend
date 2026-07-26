@@ -132,17 +132,22 @@ export function createApiApp(deps: AppDependencies): Hono {
         );
       }
 
-      // Only well-formed payment attempts consume creation quota. Body size and
-      // schema checks above are cheap, while the limiter protects the scarce DDM
-      // allocation path from valid-looking automated requests.
+      // Only well-formed payment attempts consume quota. Check both scopes
+      // first, then charge both together so a client rejected by one scope
+      // cannot burn the other scope's allowance.
       const ip = extractClientIp(c, deps.config.trustProxyHeaders);
-      const global = deps.globalLimiter.consume('global');
-      const perIp = deps.perIpLimiter.consume(ip);
-      if (!global.allowed || !perIp.allowed) {
-        const retryAfter = Math.max(global.retryAfterSeconds, perIp.retryAfterSeconds);
-        c.header('Retry-After', String(retryAfter));
+      const perIpCheck = deps.perIpLimiter.check(ip);
+      if (!perIpCheck.allowed) {
+        c.header('Retry-After', String(perIpCheck.retryAfterSeconds));
         return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
       }
+      const globalCheck = deps.globalLimiter.check('global');
+      if (!globalCheck.allowed) {
+        c.header('Retry-After', String(globalCheck.retryAfterSeconds));
+        return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
+      }
+      deps.perIpLimiter.consume(ip);
+      deps.globalLimiter.consume('global');
 
       try {
         const payment = await deps.payGate.createPayment(body.amount, body.requestId);
