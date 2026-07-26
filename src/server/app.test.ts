@@ -116,6 +116,23 @@ describe('API', () => {
     })).status).toBe(429);
   });
 
+  it('uses the rightmost proxy-added X-Forwarded-For address', async () => {
+    const { app } = makeApp({ perIpLimit: 1 });
+    const first = await app.request('/api/payments', {
+      method: 'POST',
+      headers: { ...headers, 'x-forwarded-for': '198.51.100.1, 203.0.113.50' },
+      body: createBody('55555555-5555-4555-8555-555555555555'),
+    });
+    expect(first.status).toBe(201);
+
+    const spoofedLeftmost = await app.request('/api/payments', {
+      method: 'POST',
+      headers: { ...headers, 'x-forwarded-for': '198.51.100.2, 203.0.113.50' },
+      body: createBody('66666666-6666-4666-8666-666666666666'),
+    });
+    expect(spoofedLeftmost.status).toBe(429);
+  });
+
   it('keeps status responses uncached and unknown API paths as JSON 404', async () => {
     const { app } = makeApp();
     const status = await app.request(`/api/payments/${payment.id}`);
