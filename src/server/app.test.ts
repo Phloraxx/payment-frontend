@@ -73,8 +73,15 @@ describe('API', () => {
     expect(unknownField.status).toBe(400);
   });
 
-  it('enforces per-IP creation limits', async () => {
+  it('enforces per-IP creation limits without charging malformed requests', async () => {
     const { app } = makeApp(1);
+    const malformed = await app.request('/api/payments', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ amount: 100.5, requestId: '11111111-1111-4111-8111-111111111111' }),
+    });
+    expect(malformed.status).toBe(400);
+
     const init = {
       method: 'POST',
       headers,
@@ -93,9 +100,11 @@ describe('API', () => {
     expect(status.headers.get('cache-control')).toBe('no-store');
     expect(status.headers.get('content-security-policy')).toContain("default-src 'self'");
 
-    const missing = await app.request('/api/nope');
-    expect(missing.status).toBe(404);
-    expect(missing.headers.get('content-type')).toContain('application/json');
+    for (const path of ['/api', '/api/nope']) {
+      const missing = await app.request(path);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get('content-type')).toContain('application/json');
+    }
   });
 
   it('keeps frontend liveness independent from PayGate readiness', async () => {
