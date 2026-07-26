@@ -1,13 +1,13 @@
-FROM node:22-alpine AS build
+FROM node:22.23.1-alpine AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
 RUN npm run check
 
-FROM node:22-alpine AS runtime
+FROM node:22.23.1-alpine AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
