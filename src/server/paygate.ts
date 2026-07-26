@@ -74,16 +74,7 @@ export class PayGateClient {
     return readPaymentResponse(response);
   }
 
-  async checkHealth(): Promise<boolean> {
-    try {
-      const response = await this.request('/api/paygate/health', { method: 'GET' }, false);
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  private async request(path: string, init: RequestInit, translateErrors = true): Promise<Response> {
+  private async request(path: string, init: RequestInit): Promise<Response> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -95,7 +86,7 @@ export class PayGateClient {
       throw new PayGateError(502, 'PAYGATE_UNAVAILABLE', 'Payment service is temporarily unavailable.');
     }
 
-    if (response.ok || !translateErrors) return response;
+    if (response.ok) return response;
 
     let payload: PayGateErrorPayload = {};
     try {
