@@ -13,7 +13,7 @@ import {
 } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 
 import type { PublicPayment } from '../../shared/payment.js';
 import { PageShell } from '../components/PageShell';
@@ -21,6 +21,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useCountdown } from '../hooks/useCountdown.js';
 import { usePaymentStatus } from '../hooks/usePaymentStatus.js';
 import { formatCountdown, formatRupeesFromPaise, verificationAdjustmentPaise } from '../lib/money.js';
+import { getUpiId, isAndroidUserAgent, toAndroidUpiIntent, toPersonalUpiUri } from '../lib/upi.js';
 
 export function PaymentPage() {
   const { id = '' } = useParams();
@@ -69,7 +70,12 @@ function PendingPayment({
   const locallyExpired = secondsLeft <= 0;
   const qrContainer = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedUpiId, setCopiedUpiId] = useState(false);
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
+  const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
+  const androidIntent = payment.upiUri ? toAndroidUpiIntent(payment.upiUri) : null;
+  const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
+  const isAndroid = isAndroidUserAgent(navigator.userAgent);
 
   const copyAmount = async () => {
     try {
@@ -82,17 +88,24 @@ function PendingPayment({
     }
   };
 
+  const copyUpiId = async () => {
+    if (!upiId) return;
+    try {
+      await navigator.clipboard.writeText(upiId);
+      setCopiedUpiId(true);
+      window.setTimeout(() => setCopiedUpiId(false), 1500);
+    } catch {
+      // Keep the visible UPI ID available as a manual fallback.
+    }
+  };
+
   const downloadQr = () => {
-    const svg = qrContainer.current?.querySelector('svg');
-    if (!svg) return;
-    const serialised = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([serialised], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    const canvas = qrContainer.current?.querySelector('canvas');
+    if (!canvas) return;
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `upi-payment-${payment.id}.svg`;
+    link.href = canvas.toDataURL('image/png');
+    link.download = `upi-payment-${payment.id}.png`;
     link.click();
-    URL.revokeObjectURL(url);
   };
 
   return (
@@ -132,16 +145,44 @@ function PendingPayment({
               </button>
             </div>
 
-            {payment.upiUri ? (
+            {personalUpiUri ? (
               <>
                 <div ref={qrContainer} id="qr-code-container" className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <QRCodeSVG value={payment.upiUri} level="M" size={250} className="h-full w-full" bgColor="#ffffff" fgColor="#0f172a" />
+                  <QRCodeCanvas value={personalUpiUri} level="M" size={512} className="h-full w-full" bgColor="#ffffff" fgColor="#0f172a" />
                 </div>
 
-                <a href={payment.upiUri} className="button-primary mt-6">
-                  <ArrowSquareOut className="h-5 w-5" />
-                  Open UPI app
-                </a>
+                {isAndroid && androidIntent ? (
+                  <>
+                    <a href={androidIntent} className="button-primary mt-6">
+                      <ArrowSquareOut className="h-5 w-5" />
+                      Try Android UPI launcher
+                    </a>
+                    <a href={personalUpiUri} className="button-secondary mt-3">
+                      Try standard UPI link
+                    </a>
+                  </>
+                ) : (
+                  <a href={personalUpiUri} className="button-primary mt-6">
+                    <ArrowSquareOut className="h-5 w-5" />
+                    Open UPI app
+                  </a>
+                )}
+
+                {upiId && (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">UPI ID</p>
+                      <p className="mt-1 truncate font-mono text-sm font-semibold text-slate-800">{upiId}</p>
+                    </div>
+                    <button onClick={copyUpiId} className="button-icon shrink-0" aria-label="Copy UPI ID" title="Copy UPI ID">
+                      {copiedUpiId ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
+                    </button>
+                  </div>
+                )}
+
+                <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
+                  If app launch fails, save the PNG QR and choose it from your UPI app's QR/gallery scanner.
+                </p>
               </>
             ) : (
               <div className="mt-7 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-center">
@@ -169,10 +210,10 @@ function PendingPayment({
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Time remaining</p>
             <p className="mt-1 font-mono text-xl font-semibold text-slate-900">{formatCountdown(secondsLeft)}</p>
           </div>
-          {!locallyExpired && payment.upiUri && (
+          {!locallyExpired && personalUpiUri && (
             <button onClick={downloadQr} className="button-secondary !w-auto !px-4">
               <DownloadSimple className="h-4 w-4" />
-              Save QR
+              Save PNG QR
             </button>
           )}
         </div>
