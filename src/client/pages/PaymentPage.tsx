@@ -21,7 +21,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useCountdown } from '../hooks/useCountdown.js';
 import { usePaymentStatus } from '../hooks/usePaymentStatus.js';
 import { formatCountdown, formatRupeesFromPaise, verificationAdjustmentPaise } from '../lib/money.js';
-import { getUpiId, isAndroidUserAgent, toAndroidUpiIntent, toPersonalUpiUri } from '../lib/upi.js';
+import { getUpiId, isAndroidUserAgent, toAndroidGooglePayIntent, toAndroidUpiIntent, toGooglePayUri, toPersonalUpiUri } from '../lib/upi.js';
 
 export function PaymentPage() {
   const { id = '' } = useParams();
@@ -74,6 +74,8 @@ function PendingPayment({
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
   const androidIntent = payment.upiUri ? toAndroidUpiIntent(payment.upiUri) : null;
+  const googlePayUri = payment.upiUri ? toGooglePayUri(payment.upiUri) : null;
+  const androidGooglePayIntent = payment.upiUri ? toAndroidGooglePayIntent(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
   const isAndroid = isAndroidUserAgent(navigator.userAgent);
 
@@ -153,13 +155,24 @@ function PendingPayment({
 
                 {isAndroid && androidIntent ? (
                   <>
-                    <a href={androidIntent} className="button-primary mt-6">
-                      <ArrowSquareOut className="h-5 w-5" />
-                      Try Android UPI launcher
-                    </a>
-                    <a href={personalUpiUri} className="button-secondary mt-3">
-                      Try standard UPI link
-                    </a>
+                    {androidGooglePayIntent && (
+                      <a href={androidGooglePayIntent} className="button-primary mt-6">
+                        <ArrowSquareOut className="h-5 w-5" />
+                        Try Google Pay directly
+                      </a>
+                    )}
+                    {googlePayUri && (
+                      <a href={googlePayUri} className="button-secondary mt-3">
+                        Try Google Pay deep link
+                      </a>
+                    )}
+                    <details className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                      <summary className="cursor-pointer font-semibold text-slate-800">Other launch tests</summary>
+                      <div className="mt-3 space-y-2">
+                        <a href={androidIntent} className="button-secondary">Try Android UPI launcher</a>
+                        <a href={personalUpiUri} className="button-secondary">Try standard UPI link</a>
+                      </div>
+                    </details>
                   </>
                 ) : (
                   <a href={personalUpiUri} className="button-primary mt-6">
