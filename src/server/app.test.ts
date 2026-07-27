@@ -86,6 +86,27 @@ describe('API', () => {
     })).status).toBe(429);
   });
 
+  it('prefers a validated Cloudflare visitor IP over X-Forwarded-For', async () => {
+    const { app } = makeApp({ createPerIpLimit: 1 });
+    const firstHeaders = {
+      ...headers,
+      'cf-connecting-ip': '192.0.2.44',
+      'x-forwarded-for': '198.51.100.1, 203.0.113.50',
+    };
+    expect((await app.request('/api/payments', {
+      method: 'POST', headers: firstHeaders,
+      body: createBody('77777777-7777-4777-8777-777777777777'),
+    })).status).toBe(201);
+    expect((await app.request('/api/payments', {
+      method: 'POST', headers: { ...firstHeaders, 'x-forwarded-for': '198.51.100.2, 203.0.113.51' },
+      body: createBody('88888888-8888-4888-8888-888888888888'),
+    })).status).toBe(429);
+    expect((await app.request('/api/payments', {
+      method: 'POST', headers: { ...headers, 'cf-connecting-ip': 'not-an-ip', 'x-forwarded-for': '203.0.113.52' },
+      body: createBody('99999999-9999-4999-8999-999999999999'),
+    })).status).toBe(201);
+  });
+
   it('bounds public status proxy traffic without charging another scope on rejection', async () => {
     const { app, payGate } = makeApp({ statusPerIpLimit: 1, statusGlobalLimit: 2 });
     expect((await app.request(`/api/payments/${payment.id}`, { headers })).status).toBe(200);
