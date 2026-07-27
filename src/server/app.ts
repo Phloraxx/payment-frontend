@@ -27,6 +27,13 @@ function errorBody(code: string, message: string) {
 
 function extractClientIp(c: Parameters<typeof getConnInfo>[0], trustProxyHeaders: boolean): string {
   if (trustProxyHeaders) {
+    // Cloudflare sends the original HTTP visitor address as a single-value
+    // CF-Connecting-IP header. Prefer it when present so an additional local
+    // reverse proxy (for example Traefik) cannot collapse all clients into its
+    // own address in X-Forwarded-For.
+    const cloudflareAddress = c.req.header('cf-connecting-ip')?.trim();
+    if (cloudflareAddress && isIP(cloudflareAddress)) return cloudflareAddress;
+
     const forwarded = c.req.header('x-forwarded-for');
     if (forwarded) {
       const addresses = forwarded
