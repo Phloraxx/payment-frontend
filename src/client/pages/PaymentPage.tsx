@@ -1,17 +1,17 @@
 import {
   ArrowLeft,
-  ArrowSquareOut,
   Check,
   CheckCircle,
   CircleNotch,
   Copy,
   DownloadSimple,
+  ShareNetwork,
   Hourglass,
   QrCode,
   WarningCircle,
   XCircle,
 } from '@phosphor-icons/react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -21,7 +21,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useCountdown } from '../hooks/useCountdown.js';
 import { usePaymentStatus } from '../hooks/usePaymentStatus.js';
 import { formatCountdown, formatRupeesFromPaise, verificationAdjustmentPaise } from '../lib/money.js';
-import { getUpiId, isAndroidUserAgent, toAndroidGooglePayIntent, toAndroidUpiIntent, toGooglePayUri, toPersonalUpiUri } from '../lib/upi.js';
+import { getUpiId, toPersonalUpiUri } from '../lib/upi.js';
 
 export function PaymentPage() {
   const { id = '' } = useParams();
@@ -68,16 +68,24 @@ function PendingPayment({
 }) {
   const secondsLeft = useCountdown(payment.expiresAt);
   const locallyExpired = secondsLeft <= 0;
-  const qrContainer = useRef<HTMLDivElement>(null);
+  const qrCanvasContainer = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [copiedUpiId, setCopiedUpiId] = useState(false);
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [handoffMessage, setHandoffMessage] = useState<string | null>(null);
+  const [screenshotMode, setScreenshotMode] = useState(false);
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
-  const androidIntent = payment.upiUri ? toAndroidUpiIntent(payment.upiUri) : null;
-  const googlePayUri = payment.upiUri ? toGooglePayUri(payment.upiUri) : null;
-  const androidGooglePayIntent = payment.upiUri ? toAndroidGooglePayIntent(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
-  const isAndroid = isAndroidUserAgent(navigator.userAgent);
+
+  useEffect(() => {
+    if (!personalUpiUri) return;
+    const frame = window.requestAnimationFrame(() => {
+      const canvas = qrCanvasContainer.current?.querySelector('canvas');
+      setQrImageUrl(canvas?.toDataURL('image/png') ?? null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [personalUpiUri]);
 
   const copyAmount = async () => {
     try {
@@ -85,8 +93,7 @@ function PendingPayment({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard access may be unavailable in some browsers; the amount is
-      // still prominently visible while the payment window is active.
+      // The exact amount remains visible for manual entry.
     }
   };
 
@@ -101,13 +108,43 @@ function PendingPayment({
     }
   };
 
+  const qrFile = async (): Promise<File | null> => {
+    if (!qrImageUrl) return null;
+    const blob = await (await fetch(qrImageUrl)).blob();
+    return new File([blob], `paygate-${payment.payableAmount}.png`, { type: 'image/png' });
+  };
+
+  const shareQr = async () => {
+    setHandoffMessage(null);
+    try {
+      const file = await qrFile();
+      if (!file || typeof navigator.share !== 'function' || !navigator.canShare?.({ files: [file] })) {
+        setHandoffMessage('QR sharing is not supported here. Use Screenshot mode or Save QR.');
+        return;
+      }
+      await navigator.share({ files: [file], title: `Pay ₹${payment.payableAmount}` });
+    } catch (shareError) {
+      if (shareError instanceof DOMException && shareError.name === 'AbortError') return;
+      setHandoffMessage('Could not open the share sheet. Use Screenshot mode or Save QR.');
+    }
+  };
+
   const downloadQr = () => {
-    const canvas = qrContainer.current?.querySelector('canvas');
-    if (!canvas) return;
+    if (!qrImageUrl) return;
     const link = document.createElement('a');
-    link.href = canvas.toDataURL('image/png');
+    link.href = qrImageUrl;
     link.download = `upi-payment-${payment.id}.png`;
     link.click();
+  };
+
+  const openScreenshotMode = () => {
+    setScreenshotMode(true);
+    void document.documentElement.requestFullscreen?.().catch(() => undefined);
+  };
+
+  const closeScreenshotMode = () => {
+    setScreenshotMode(false);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
   };
 
   return (
@@ -135,7 +172,7 @@ function PendingPayment({
             <Hourglass className="mx-auto h-9 w-9 text-orange-700" />
             <p className="mt-3 font-semibold text-orange-950">Do not send this payment now</p>
             <p className="mt-2 text-sm leading-relaxed text-orange-800">
-              The payment window has ended, so the QR and UPI action have been disabled. We are still checking PayGate for the authoritative final status.
+              The payment window has ended, so the QR actions have been disabled. We are still checking PayGate for the authoritative final status.
             </p>
           </div>
         ) : (
@@ -149,36 +186,41 @@ function PendingPayment({
 
             {personalUpiUri ? (
               <>
-                <div ref={qrContainer} id="qr-code-container" className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <QRCodeCanvas value={personalUpiUri} level="M" size={512} className="h-full w-full" bgColor="#ffffff" fgColor="#0f172a" />
+                <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true">
+                  <QRCodeCanvas value={personalUpiUri} level="M" size={768} bgColor="#ffffff" fgColor="#0f172a" />
                 </div>
 
-                {isAndroid && androidIntent ? (
-                  <>
-                    {androidGooglePayIntent && (
-                      <a href={androidGooglePayIntent} className="button-primary mt-6">
-                        <ArrowSquareOut className="h-5 w-5" />
-                        Try Google Pay directly
-                      </a>
-                    )}
-                    {googlePayUri && (
-                      <a href={googlePayUri} className="button-secondary mt-3">
-                        Try Google Pay deep link
-                      </a>
-                    )}
-                    <details className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                      <summary className="cursor-pointer font-semibold text-slate-800">Other launch tests</summary>
-                      <div className="mt-3 space-y-2">
-                        <a href={androidIntent} className="button-secondary">Try Android UPI launcher</a>
-                        <a href={personalUpiUri} className="button-secondary">Try standard UPI link</a>
-                      </div>
-                    </details>
-                  </>
-                ) : (
-                  <a href={personalUpiUri} className="button-primary mt-6">
-                    <ArrowSquareOut className="h-5 w-5" />
-                    Open UPI app
-                  </a>
+                <div className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  {qrImageUrl ? (
+                    <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} className="h-full w-full select-none" />
+                  ) : (
+                    <CircleNotch className="h-8 w-8 animate-spin text-slate-400" />
+                  )}
+                </div>
+
+                <button onClick={() => void shareQr()} disabled={!qrImageUrl} className="button-primary mt-6 disabled:cursor-not-allowed disabled:opacity-60">
+                  <ShareNetwork className="h-5 w-5" />
+                  Share QR
+                </button>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <button onClick={openScreenshotMode} disabled={!qrImageUrl} className="button-secondary disabled:cursor-not-allowed disabled:opacity-60">
+                    Screenshot mode
+                  </button>
+                  <button onClick={downloadQr} disabled={!qrImageUrl} className="button-secondary disabled:cursor-not-allowed disabled:opacity-60">
+                    <DownloadSimple className="h-4 w-4" />
+                    Save QR
+                  </button>
+                </div>
+
+                <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
+                  Tip: long-press the QR image to try your browser's Share or Google Lens actions.
+                </p>
+
+                {handoffMessage && (
+                  <div role="status" className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {handoffMessage}
+                  </div>
                 )}
 
                 {upiId && (
@@ -192,18 +234,12 @@ function PendingPayment({
                     </button>
                   </div>
                 )}
-
-                <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
-                  If app launch fails, save the PNG QR and choose it from your UPI app's QR/gallery scanner.
-                </p>
               </>
             ) : (
               <div className="mt-7 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-center">
                 <QrCode className="mx-auto h-8 w-8 text-amber-700" />
                 <p className="mt-3 font-semibold text-amber-900">QR unavailable after this session was restored</p>
-                <p className="mt-1 text-sm leading-relaxed text-amber-700">
-                  Status checking still works. Create a new payment if you need the QR again.
-                </p>
+                <p className="mt-1 text-sm leading-relaxed text-amber-700">Status checking still works. Create a new payment if you need the QR again.</p>
               </div>
             )}
 
@@ -223,12 +259,6 @@ function PendingPayment({
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Time remaining</p>
             <p className="mt-1 font-mono text-xl font-semibold text-slate-900">{formatCountdown(secondsLeft)}</p>
           </div>
-          {!locallyExpired && personalUpiUri && (
-            <button onClick={downloadQr} className="button-secondary !w-auto !px-4">
-              <DownloadSimple className="h-4 w-4" />
-              Save PNG QR
-            </button>
-          )}
         </div>
 
         {locallyExpired && (
@@ -247,6 +277,19 @@ function PendingPayment({
 
         <p className="mt-5 break-all text-center font-mono text-[11px] text-slate-400">Payment ID: {payment.id}</p>
       </div>
+
+      {screenshotMode && qrImageUrl && (
+        <div className="fixed inset-0 z-[100] flex min-h-dvh flex-col items-center justify-center bg-white px-6 py-8 text-center text-slate-950">
+          <button onClick={closeScreenshotMode} className="absolute right-5 top-5 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Close</button>
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Screenshot this QR</p>
+          <p className="mt-3 text-4xl font-bold tracking-[-0.05em]">{formatRupeesFromPaise(payment.payableAmountPaise)}</p>
+          <div className="mt-6 w-full max-w-[340px] rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} className="h-auto w-full" />
+          </div>
+          <p className="mt-5 max-w-sm text-sm leading-relaxed text-slate-600">Take a screenshot, then open your UPI app → Scan QR → Gallery and choose the newest screenshot.</p>
+          <p className="mt-3 font-mono text-xs text-slate-400">Exact amount: ₹{payment.payableAmount}</p>
+        </div>
+      )}
     </PageShell>
   );
 }
