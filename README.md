@@ -52,7 +52,7 @@ PAYMENT_STATUS_GLOBAL_LIMIT=1800
 PAYMENT_STATUS_GLOBAL_WINDOW_SECONDS=60
 ```
 
-Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only through a trusted reverse proxy. For the Dokploy/Traefik deployment it may be set to `true` only after verifying that Traefik appends its observed client `RemoteAddr` to `X-Forwarded-For` and the container port is not directly exposed. In proxy mode the app deliberately uses the rightmost valid `X-Forwarded-For` address so a client-supplied leftmost value cannot select its rate-limit identity.
+Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only through trusted proxy infrastructure. With proxy trust enabled, a valid `CF-Connecting-IP` takes priority so Cloudflare Tunnel traffic is rate-limited by the original visitor address. When that header is absent or invalid, the app falls back to the rightmost valid `X-Forwarded-For` address. The production Dokploy route is restricted to local/Docker-private tunnel traffic so arbitrary direct-origin requests cannot supply trusted proxy headers.
 
 ## Payment flow
 
