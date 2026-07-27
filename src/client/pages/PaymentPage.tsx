@@ -69,6 +69,7 @@ function PendingPayment({
   const secondsLeft = useCountdown(payment.expiresAt);
   const locallyExpired = secondsLeft <= 0;
   const qrCanvasContainer = useRef<HTMLDivElement>(null);
+  const qrShareFile = useRef<File | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedUpiId, setCopiedUpiId] = useState(false);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
@@ -83,6 +84,9 @@ function PendingPayment({
     const frame = window.requestAnimationFrame(() => {
       const canvas = qrCanvasContainer.current?.querySelector('canvas');
       setQrImageUrl(canvas?.toDataURL('image/png') ?? null);
+      canvas?.toBlob((blob) => {
+        qrShareFile.current = blob ? new File([blob], 'paygate-upi.png', { type: 'image/png' }) : null;
+      }, 'image/png');
     });
     return () => window.cancelAnimationFrame(frame);
   }, [personalUpiUri]);
@@ -108,16 +112,10 @@ function PendingPayment({
     }
   };
 
-  const qrFile = async (): Promise<File | null> => {
-    if (!qrImageUrl) return null;
-    const blob = await (await fetch(qrImageUrl)).blob();
-    return new File([blob], `paygate-${payment.payableAmount}.png`, { type: 'image/png' });
-  };
-
   const shareQr = async () => {
     setHandoffMessage(null);
     try {
-      const file = await qrFile();
+      const file = qrShareFile.current;
       if (!file || typeof navigator.share !== 'function' || !navigator.canShare?.({ files: [file] })) {
         setHandoffMessage('QR sharing is not supported here. Use Screenshot mode or Save QR.');
         return;
