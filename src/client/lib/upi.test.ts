@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getUpiId, isAndroidUserAgent, toAndroidUpiIntent, toPersonalUpiUri } from './upi.js';
+import { getUpiId, isAndroidUserAgent, toAndroidGooglePayIntent, toAndroidUpiIntent, toGooglePayUri, toPersonalUpiUri } from './upi.js';
 
 describe('UPI launch helpers', () => {
   const merchantLike = 'upi://pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR&tr=payment_123&tn=payment_123&mc=1234';
@@ -12,6 +12,13 @@ describe('UPI launch helpers', () => {
   it('builds an Android intent wrapper around the minimal URI', () => {
     expect(toAndroidUpiIntent(merchantLike)).toBe(
       'intent://pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR#Intent;scheme=upi;end',
+    );
+  });
+
+  it('builds Google Pay-specific links from the same personal URI', () => {
+    expect(toGooglePayUri(merchantLike)).toBe('gpay://upi/pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR');
+    expect(toAndroidGooglePayIntent(merchantLike)).toBe(
+      'intent://upi/pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR#Intent;scheme=gpay;package=com.google.android.apps.nbu.paisa.user;end',
     );
   });
 
