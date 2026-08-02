@@ -31,7 +31,7 @@ export interface RazorpayCustomInstance {
 }
 
 export interface RazorpayCustomConstructor {
-  new (options: { key: string; redirect: false }): RazorpayCustomInstance;
+  new (options: { key: string; redirect: true; callback_url: string }): RazorpayCustomInstance;
 }
 
 declare global {
@@ -46,6 +46,15 @@ let scriptPromise: Promise<void> | undefined;
 export function razorpayPaymentErrorMessage(response: RazorpayCustomErrorResponse): string {
   const message = response.error?.description?.replace(/[\r\n\t]+/g, ' ').trim();
   return message ? message.slice(0, 240) : 'Razorpay reported a failed or cancelled test payment.';
+}
+
+
+export function buildRazorpayCallbackUrl(orderId: string, origin: string): string {
+  if (!/^[a-z0-9_-]{8,64}$/i.test(orderId)) throw new Error('Invalid Razorpay order callback ID.');
+  const url = new URL('/api/razorpay/test/callback', origin);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid Razorpay callback origin.');
+  url.searchParams.set('order', orderId);
+  return url.toString();
 }
 
 export function buildNetbankingTestPayment(
