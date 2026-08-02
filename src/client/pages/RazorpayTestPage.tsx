@@ -16,6 +16,7 @@ import { PageShell } from '../components/PageShell';
 import { ClientApiError, getRazorpayTestMethods, getRazorpayTestOrder, verifyRazorpayTestOrder } from '../lib/api.js';
 import {
   buildNetbankingTestPayment,
+  buildRazorpayCallbackUrl,
   loadRazorpayCustomSdk,
   razorpayPaymentErrorMessage,
   type RazorpayCustomErrorResponse,
@@ -116,7 +117,11 @@ export function RazorpayTestPage() {
     setMessage(`Opening ${bank.name} secure Test Mode authentication…`);
     setError(undefined);
     try {
-      const razorpay = new window.Razorpay({ key: order.keyId, redirect: false });
+      const razorpay = new window.Razorpay({
+        key: order.keyId,
+        redirect: true,
+        callback_url: buildRazorpayCallbackUrl(order.id, window.location.origin),
+      });
       razorpay.on('payment.success', (response) => void verify(response));
       razorpay.on('payment.error', handlePaymentError);
       razorpay.createPayment(buildNetbankingTestPayment(order, bank.code));

@@ -222,6 +222,27 @@ describe('API', () => {
     expect(methodsResponse.status).toBe(200);
     expect(await methodsResponse.json()).toEqual(razorpayMethods);
     expect(razorpayTest.getMethods).toHaveBeenCalledOnce();
+    const callback = await app.request(`/api/razorpay/test/callback?order=${razorpayOrder.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        razorpay_order_id: 'order_public123',
+        razorpay_payment_id: 'pay_public_123',
+        razorpay_signature: 'a'.repeat(64),
+      }).toString(),
+    });
+    expect(callback.status).toBe(303);
+    expect(callback.headers.get('location')).toBe(`/razorpay-test/${razorpayOrder.id}?callback=verified`);
+    expect(razorpayTest.verifyOrder).toHaveBeenCalledWith(razorpayOrder.id, {
+      razorpay_order_id: 'order_public123',
+      razorpay_payment_id: 'pay_public_123',
+      razorpay_signature: 'a'.repeat(64),
+    });
+    expect((await app.request(`/api/razorpay/test/callback?order=${razorpayOrder.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'razorpay_order_id=wrong',
+    })).status).toBe(400);
     const create = await app.request('/api/razorpay/test/orders', {
       method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
     });

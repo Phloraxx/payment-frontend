@@ -349,6 +349,46 @@ export function createApiApp(deps: AppDependencies): Hono {
   });
 
   app.post(
+    '/api/razorpay/test/callback',
+    bodyLimit({
+      maxSize: 16 * 1024,
+      onError: (c) => c.json(errorBody('REQUEST_TOO_LARGE', 'Callback body is too large.'), 413),
+    }),
+    async (c) => {
+      if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+        return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+      }
+      const id = c.req.query('order')?.trim() ?? '';
+      if (!PAYMENT_ID_RE.test(id)) {
+        return c.json(errorBody('INVALID_ORDER_ID', 'Invalid Razorpay test order ID.'), 400);
+      }
+      const contentType = c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase();
+      if (contentType !== 'application/x-www-form-urlencoded' && contentType !== 'multipart/form-data') {
+        return c.json(errorBody('INVALID_CONTENT_TYPE', 'Razorpay callback must use form data.'), 415);
+      }
+      let raw: unknown;
+      try {
+        raw = await c.req.parseBody();
+      } catch {
+        return c.json(errorBody('INVALID_FORM', 'Razorpay callback form is invalid.'), 400);
+      }
+      const body = parseRazorpayVerifyBody(raw);
+      if (!body) {
+        return c.json(errorBody('INVALID_REQUEST', 'Invalid Razorpay callback response.'), 400);
+      }
+      try {
+        await deps.razorpayTest.verifyOrder(id, body);
+        return c.redirect(`/razorpay-test/${encodeURIComponent(id)}?callback=verified`, 303);
+      } catch (error) {
+        if (error instanceof RazorpayTestProxyError) {
+          return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post(
     '/api/razorpay/test/orders/:id/verify',
     bodyLimit({
       maxSize: 16 * 1024,
