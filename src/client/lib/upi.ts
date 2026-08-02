@@ -20,27 +20,6 @@ export function toPersonalUpiUri(upiUri: string): string | null {
   }
 }
 
-export function toAndroidUpiIntent(upiUri: string): string | null {
-  const personalUri = toPersonalUpiUri(upiUri);
-  if (!personalUri) return null;
-
-  const query = personalUri.slice('upi://pay?'.length);
-  return `intent://pay?${query}#Intent;scheme=upi;end`;
-}
-
-export function toGooglePayUri(upiUri: string): string | null {
-  const personalUri = toPersonalUpiUri(upiUri);
-  if (!personalUri) return null;
-  return `gpay://upi/pay?${personalUri.slice('upi://pay?'.length)}`;
-}
-
-export function toAndroidGooglePayIntent(upiUri: string): string | null {
-  const personalUri = toPersonalUpiUri(upiUri);
-  if (!personalUri) return null;
-  const query = personalUri.slice('upi://pay?'.length);
-  return `intent://upi/pay?${query}#Intent;scheme=gpay;package=com.google.android.apps.nbu.paisa.user;end`;
-}
-
 export function getUpiId(upiUri: string): string | null {
   const personalUri = toPersonalUpiUri(upiUri);
   if (!personalUri) return null;
@@ -50,8 +29,4 @@ export function getUpiId(upiUri: string): string | null {
   } catch {
     return null;
   }
-}
-
-export function isAndroidUserAgent(userAgent: string): boolean {
-  return /Android/i.test(userAgent);
 }
