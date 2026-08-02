@@ -5,16 +5,22 @@ import { secureHeaders } from 'hono/secure-headers';
 import { isIP } from 'node:net';
 
 import type { CreatePaymentRequest } from '../shared/payment.js';
+import type { VerifyRazorpayTestRequest } from '../shared/razorpay.js';
 import type { ServerConfig } from './config.js';
 import { PayGateClient, PayGateError } from './paygate.js';
+import { RazorpayTestClient, RazorpayTestProxyError } from './razorpay-test.js';
 import { FixedWindowLimiter, type RateLimitDecision } from './rate-limit.js';
 
 const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAYMENT_ID_RE = /^[a-z0-9_-]{8,64}$/i;
+const RAZORPAY_ORDER_ID_RE = /^order_[A-Za-z0-9]{6,64}$/;
+const RAZORPAY_PAYMENT_ID_RE = /^pay_[A-Za-z0-9_]{6,64}$/;
+const HEX_SIGNATURE_RE = /^[a-f0-9]{64}$/i;
 
 export interface AppDependencies {
   config: ServerConfig;
   payGate: Pick<PayGateClient, 'createPayment' | 'getPayment'>;
+  razorpayTest?: Pick<RazorpayTestClient, 'getConfig' | 'createOrder' | 'getOrder' | 'verifyOrder' | 'forwardWebhook'>;
   createPerIpLimiter: FixedWindowLimiter;
   createGlobalLimiter: FixedWindowLimiter;
   statusPerIpLimiter: FixedWindowLimiter;
@@ -80,6 +86,35 @@ function parseCreateBody(value: unknown): CreatePaymentRequest | null {
   return { amount: item.amount, requestId: item.requestId };
 }
 
+function parseRazorpayVerifyBody(value: unknown): VerifyRazorpayTestRequest | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  const keys = Object.keys(item);
+  if (
+    keys.length !== 3 ||
+    !keys.includes('razorpay_order_id') ||
+    !keys.includes('razorpay_payment_id') ||
+    !keys.includes('razorpay_signature') ||
+    typeof item.razorpay_order_id !== 'string' ||
+    !RAZORPAY_ORDER_ID_RE.test(item.razorpay_order_id) ||
+    typeof item.razorpay_payment_id !== 'string' ||
+    !RAZORPAY_PAYMENT_ID_RE.test(item.razorpay_payment_id) ||
+    typeof item.razorpay_signature !== 'string' ||
+    !HEX_SIGNATURE_RE.test(item.razorpay_signature)
+  ) {
+    return null;
+  }
+  return {
+    razorpay_order_id: item.razorpay_order_id,
+    razorpay_payment_id: item.razorpay_payment_id,
+    razorpay_signature: item.razorpay_signature,
+  };
+}
+
+function razorpayErrorStatus(status: number): 400 | 404 | 409 | 422 | 429 | 502 {
+  return clientErrorStatus(status);
+}
+
 function clientErrorStatus(status: number): 400 | 404 | 409 | 422 | 429 | 502 {
   switch (status) {
     case 400:
@@ -102,13 +137,22 @@ export function createApiApp(deps: AppDependencies): Hono {
       contentSecurityPolicy: {
         defaultSrc: ["'self'"],
         baseUri: ["'none'"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        formAction: ["'self'"],
+        connectSrc: deps.config.razorpayTestEnabled
+          ? ["'self'", 'https://api.razorpay.com', 'https://*.razorpay.com']
+          : ["'self'"],
+        fontSrc: deps.config.razorpayTestEnabled ? ["'self'", 'https://*.razorpay.com'] : ["'self'"],
+        formAction: deps.config.razorpayTestEnabled ? ["'self'", 'https://api.razorpay.com'] : ["'self'"],
         frameAncestors: ["'none'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
+        frameSrc: deps.config.razorpayTestEnabled
+          ? ['https://api.razorpay.com', 'https://*.razorpay.com']
+          : ["'none'"],
+        imgSrc: deps.config.razorpayTestEnabled
+          ? ["'self'", 'data:', 'blob:', 'https://*.razorpay.com']
+          : ["'self'", 'data:', 'blob:'],
         objectSrc: ["'none'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: deps.config.razorpayTestEnabled
+          ? ["'self'", 'https://checkout.razorpay.com']
+          : ["'self'"],
         styleSrc: ["'self'"],
       },
       permissionsPolicy: {
@@ -197,6 +241,159 @@ export function createApiApp(deps: AppDependencies): Hono {
       throw error;
     }
   });
+
+  app.get('/api/razorpay/test/config', async (c) => {
+    if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+      return c.json({ enabled: false, keyId: '', displayName: '', mode: 'test' as const });
+    }
+    try {
+      return c.json(await deps.razorpayTest.getConfig());
+    } catch (error) {
+      if (error instanceof RazorpayTestProxyError) {
+        return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+      }
+      throw error;
+    }
+  });
+
+  app.post(
+    '/api/razorpay/test/orders',
+    bodyLimit({
+      maxSize: 8 * 1024,
+      onError: (c) => c.json(errorBody('REQUEST_TOO_LARGE', 'Request body is too large.'), 413),
+    }),
+    async (c) => {
+      if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+        return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+      }
+      if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+        return c.json(errorBody('INVALID_CONTENT_TYPE', 'Content-Type must be application/json.'), 415);
+      }
+      let raw: unknown;
+      try {
+        raw = await c.req.json();
+      } catch {
+        return c.json(errorBody('INVALID_JSON', 'Request body must be valid JSON.'), 400);
+      }
+      const body = parseCreateBody(raw);
+      if (!body) {
+        return c.json(errorBody('INVALID_REQUEST', 'Amount must be a positive whole number of rupees and requestId must be a UUID.'), 400);
+      }
+      const amountPaise = body.amount * 100;
+      if (!Number.isSafeInteger(amountPaise) || amountPaise > 100_000_00) {
+        return c.json(errorBody('INVALID_REQUEST', 'Razorpay Test amount must be between ₹1 and ₹1,00,000.'), 400);
+      }
+      const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+      const denied = takeScopedQuota(deps.createPerIpLimiter, deps.createGlobalLimiter, clientIp);
+      if (denied) {
+        c.header('Retry-After', String(denied.retryAfterSeconds));
+        return c.json(errorBody('RATE_LIMITED', 'Too many payment requests. Please wait and try again.'), 429);
+      }
+      try {
+        return c.json(await deps.razorpayTest.createOrder(amountPaise, body.requestId), 201);
+      } catch (error) {
+        if (error instanceof RazorpayTestProxyError) {
+          return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.get('/api/razorpay/test/orders/:id', async (c) => {
+    if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+      return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+    }
+    const id = c.req.param('id');
+    if (!PAYMENT_ID_RE.test(id)) {
+      return c.json(errorBody('INVALID_ORDER_ID', 'Invalid Razorpay test order ID.'), 400);
+    }
+    const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+    const denied = takeScopedQuota(deps.statusPerIpLimiter, deps.statusGlobalLimiter, clientIp);
+    if (denied) {
+      c.header('Retry-After', String(denied.retryAfterSeconds));
+      return c.json(errorBody('RATE_LIMITED', 'Too many payment status requests. Please wait and try again.'), 429);
+    }
+    try {
+      return c.json(await deps.razorpayTest.getOrder(id));
+    } catch (error) {
+      if (error instanceof RazorpayTestProxyError) {
+        return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+      }
+      throw error;
+    }
+  });
+
+  app.post(
+    '/api/razorpay/test/orders/:id/verify',
+    bodyLimit({
+      maxSize: 16 * 1024,
+      onError: (c) => c.json(errorBody('REQUEST_TOO_LARGE', 'Request body is too large.'), 413),
+    }),
+    async (c) => {
+      if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+        return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+      }
+      const id = c.req.param('id');
+      if (!PAYMENT_ID_RE.test(id)) {
+        return c.json(errorBody('INVALID_ORDER_ID', 'Invalid Razorpay test order ID.'), 400);
+      }
+      if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+        return c.json(errorBody('INVALID_CONTENT_TYPE', 'Content-Type must be application/json.'), 415);
+      }
+      let raw: unknown;
+      try {
+        raw = await c.req.json();
+      } catch {
+        return c.json(errorBody('INVALID_JSON', 'Request body must be valid JSON.'), 400);
+      }
+      const body = parseRazorpayVerifyBody(raw);
+      if (!body) {
+        return c.json(errorBody('INVALID_REQUEST', 'Invalid Razorpay Checkout verification response.'), 400);
+      }
+      const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+      const denied = takeScopedQuota(deps.statusPerIpLimiter, deps.statusGlobalLimiter, clientIp);
+      if (denied) {
+        c.header('Retry-After', String(denied.retryAfterSeconds));
+        return c.json(errorBody('RATE_LIMITED', 'Too many payment verification requests. Please wait and try again.'), 429);
+      }
+      try {
+        return c.json(await deps.razorpayTest.verifyOrder(id, body));
+      } catch (error) {
+        if (error instanceof RazorpayTestProxyError) {
+          return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post(
+    '/api/razorpay/test/webhook',
+    bodyLimit({
+      maxSize: 1 << 20,
+      onError: (c) => c.json(errorBody('REQUEST_TOO_LARGE', 'Webhook body is too large.'), 413),
+    }),
+    async (c) => {
+      if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+        return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+      }
+      const eventId = c.req.header('x-razorpay-event-id')?.trim() ?? '';
+      const signature = c.req.header('x-razorpay-signature')?.trim() ?? '';
+      if (!eventId || eventId.length > 128 || !HEX_SIGNATURE_RE.test(signature)) {
+        return c.json(errorBody('RAZORPAY_TEST_WEBHOOK_INVALID', 'Missing or invalid Razorpay webhook headers.'), 400);
+      }
+      const raw = await c.req.arrayBuffer();
+      const upstream = await deps.razorpayTest.forwardWebhook(raw, eventId, signature);
+      return new Response(await upstream.arrayBuffer(), {
+        status: upstream.status,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': upstream.headers.get('content-type') ?? 'application/json; charset=UTF-8',
+        },
+      });
+    },
+  );
 
   app.all('/api', (c) => c.json(errorBody('NOT_FOUND', 'API route not found.'), 404));
   app.all('/api/*', (c) => c.json(errorBody('NOT_FOUND', 'API route not found.'), 404));

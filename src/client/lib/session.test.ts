@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clearCreateDraft, getOrCreateRequestId, loadPaymentSession, savePaymentSession } from './session.js';
+import { clearCreateDraft, clearRazorpayCreateDraft, getOrCreateRazorpayRequestId, getOrCreateRequestId, loadPaymentSession, savePaymentSession } from './session.js';
 
 class MemoryStorage {
   private readonly values = new Map<string, string>();
@@ -80,4 +80,14 @@ describe('client session resilience', () => {
     expect(loadPaymentSession(payment.id)).toBeUndefined();
     expect(() => getOrCreateRequestId(100)).not.toThrow();
   });
+
+  it('keeps Razorpay Test idempotency separate from direct UPI', () => {
+    const upi = getOrCreateRequestId(100);
+    const razorpay = getOrCreateRazorpayRequestId(100);
+    expect(razorpay).not.toBe(upi);
+    expect(getOrCreateRazorpayRequestId(100)).toBe(razorpay);
+    clearRazorpayCreateDraft();
+    expect(getOrCreateRazorpayRequestId(100)).not.toBe(razorpay);
+  });
+
 });

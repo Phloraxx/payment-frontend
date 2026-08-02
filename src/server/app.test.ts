@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PublicPayment } from '../shared/payment.js';
+import type { RazorpayTestConfig, RazorpayTestOrder } from '../shared/razorpay.js';
 import { createApiApp } from './app.js';
 import type { ServerConfig } from './config.js';
 import { FixedWindowLimiter } from './rate-limit.js';
@@ -11,26 +12,75 @@ const payment: PublicPayment = {
   upiUri: 'upi://pay?pa=test%40bank&am=100.37',
 };
 
+
+const razorpayConfig: RazorpayTestConfig = {
+  enabled: true,
+  keyId: 'rzp_test_public123',
+  displayName: 'IEEE Sahrdaya Razorpay Test',
+  mode: 'test',
+};
+
+const razorpayOrder: RazorpayTestOrder = {
+  id: 'razorpayorder01',
+  amountPaise: 10000,
+  currency: 'INR',
+  status: 'created',
+  externalId: 'portal:request',
+  razorpayOrderId: 'order_public123',
+  razorpayPaymentId: '',
+  providerStatus: 'created',
+  paymentMethod: '',
+  amountRefunded: 0,
+  error: '',
+  createdAt: '2026-08-02T12:00:00Z',
+  capturedAt: '',
+  keyId: 'rzp_test_public123',
+  displayName: 'IEEE Sahrdaya Razorpay Test',
+};
+
 const config: ServerConfig = {
-  port: 3000, payGateUrl: 'https://pay.example.com', payGateApiKey: 'x'.repeat(32), trustProxyHeaders: true,
+  port: 3000, payGateUrl: 'https://pay.example.com', payGateApiKey: 'x'.repeat(32),
+  razorpayTestEnabled: false, razorpayTestUrl: '', razorpayTestApiKey: '', trustProxyHeaders: true,
   creationRateLimit: 5, creationWindowMs: 300_000, globalCreationRateLimit: 60, globalCreationWindowMs: 60_000,
   statusRateLimit: 180, statusWindowMs: 60_000, globalStatusRateLimit: 1800, globalStatusWindowMs: 60_000,
 };
 
-function makeApp({ createPerIpLimit = 5, createGlobalLimit = 60, statusPerIpLimit = 180, statusGlobalLimit = 1800 } = {}) {
+function makeApp({
+  createPerIpLimit = 5,
+  createGlobalLimit = 60,
+  statusPerIpLimit = 180,
+  statusGlobalLimit = 1800,
+  razorpayEnabled = false,
+} = {}) {
   const payGate = {
     createPayment: vi.fn().mockResolvedValue(payment),
     getPayment: vi.fn().mockResolvedValue(payment),
   };
+  const razorpayTest = {
+    getConfig: vi.fn().mockResolvedValue(razorpayConfig),
+    createOrder: vi.fn().mockResolvedValue(razorpayOrder),
+    getOrder: vi.fn().mockResolvedValue(razorpayOrder),
+    verifyOrder: vi.fn().mockResolvedValue({ ...razorpayOrder, status: 'captured' as const }),
+    forwardWebhook: vi.fn().mockResolvedValue(new Response('{"processed":true}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })),
+  };
   const app = createApiApp({
-    config,
+    config: {
+      ...config,
+      razorpayTestEnabled: razorpayEnabled,
+      razorpayTestUrl: razorpayEnabled ? 'http://razorpay-test.internal' : '',
+      razorpayTestApiKey: razorpayEnabled ? 'r'.repeat(32) : '',
+    },
     payGate,
+    razorpayTest: razorpayEnabled ? razorpayTest : undefined,
     createPerIpLimiter: new FixedWindowLimiter(createPerIpLimit, 300_000),
     createGlobalLimiter: new FixedWindowLimiter(createGlobalLimit, 60_000),
     statusPerIpLimiter: new FixedWindowLimiter(statusPerIpLimit, 60_000),
     statusGlobalLimiter: new FixedWindowLimiter(statusGlobalLimit, 60_000),
   });
-  return { app, payGate };
+  return { app, payGate, razorpayTest };
 }
 
 const headers = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' };
@@ -137,4 +187,84 @@ describe('API', () => {
       expect(missing.headers.get('content-type')).toContain('application/json');
     }
   });
+
+  it('keeps Razorpay disabled by default and does not loosen CSP', async () => {
+    const { app } = makeApp();
+    const configResponse = await app.request('/api/razorpay/test/config');
+    expect(configResponse.status).toBe(200);
+    await expect(configResponse.json()).resolves.toEqual({ enabled: false, keyId: '', displayName: '', mode: 'test' });
+    const root = await app.request('/');
+    expect(root.headers.get('content-security-policy')).not.toContain('checkout.razorpay.com');
+    expect((await app.request('/api/razorpay/test/orders', {
+      method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
+    })).status).toBe(404);
+  });
+
+  it('creates and verifies Razorpay Test orders through the private client', async () => {
+    const { app, razorpayTest } = makeApp({ razorpayEnabled: true });
+    const configResponse = await app.request('/api/razorpay/test/config');
+    expect(configResponse.status).toBe(200);
+    expect(await configResponse.json()).toEqual(razorpayConfig);
+    const create = await app.request('/api/razorpay/test/orders', {
+      method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
+    });
+    expect(create.status).toBe(201);
+    expect(razorpayTest.createOrder).toHaveBeenCalledWith(10_000, '11111111-1111-4111-8111-111111111111');
+    expect((await app.request('/api/razorpay/test/orders', {
+      method: 'POST', headers, body: createBody('22222222-2222-4222-8222-222222222222', 100.5),
+    })).status).toBe(400);
+    const verify = await app.request(`/api/razorpay/test/orders/${razorpayOrder.id}/verify`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        razorpay_order_id: 'order_public123',
+        razorpay_payment_id: 'pay_public_123',
+        razorpay_signature: 'a'.repeat(64),
+      }),
+    });
+    expect(verify.status).toBe(200);
+    expect(razorpayTest.verifyOrder).toHaveBeenCalledWith(razorpayOrder.id, {
+      razorpay_order_id: 'order_public123',
+      razorpay_payment_id: 'pay_public_123',
+      razorpay_signature: 'a'.repeat(64),
+    });
+    expect((await app.request(`/api/razorpay/test/orders/${razorpayOrder.id}/verify`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        razorpay_order_id: 'wrong', razorpay_payment_id: 'pay_public_123', razorpay_signature: 'a'.repeat(64),
+      }),
+    })).status).toBe(400);
+  });
+
+  it('forwards the exact signed Razorpay webhook bytes and headers', async () => {
+    const { app, razorpayTest } = makeApp({ razorpayEnabled: true });
+    const raw = '{"event":"payment.captured","value":"exact bytes"}';
+    const response = await app.request('/api/razorpay/test/webhook', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-razorpay-event-id': 'evt_public_123',
+        'x-razorpay-signature': 'b'.repeat(64),
+      },
+      body: raw,
+    });
+    expect(response.status).toBe(200);
+    const forwarded = razorpayTest.forwardWebhook.mock.calls[0];
+    expect(new TextDecoder().decode(forwarded[0])).toBe(raw);
+    expect(forwarded[1]).toBe('evt_public_123');
+    expect(forwarded[2]).toBe('b'.repeat(64));
+    expect((await app.request('/api/razorpay/test/webhook', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: raw,
+    })).status).toBe(400);
+  });
+
+  it('adds only Razorpay Test origins to CSP when enabled', async () => {
+    const { app } = makeApp({ razorpayEnabled: true });
+    const root = await app.request('/');
+    const csp = root.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain('https://checkout.razorpay.com');
+    expect(csp).toContain('frame-src https://api.razorpay.com https://*.razorpay.com');
+    expect(csp).not.toContain("'unsafe-inline'");
+    expect(csp).not.toContain("'unsafe-eval'");
+  });
+
 });

@@ -3,6 +3,7 @@ import { isPublicPayment, type PublicPayment } from '../../shared/payment.js';
 const PREFIX = 'paygate:payment:';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CREATE_DRAFT_KEY = 'paygate:create-draft';
+const RAZORPAY_CREATE_DRAFT_KEY = 'paygate:razorpay-test-create-draft';
 const CREATE_DRAFT_MAX_AGE_MS = 15 * 60 * 1000;
 
 interface StoredPaymentSession {
@@ -69,13 +70,13 @@ export function clearPaymentSession(id: string): void {
   safeRemove(key(id));
 }
 
-export function getOrCreateRequestId(amount: number): string {
+function getOrCreateDraftRequestId(storageKey: string, amount: number): string {
   const fresh = () => {
     const requestId = crypto.randomUUID();
     if (typeof sessionStorage !== 'undefined') {
       try {
         const draft: StoredCreateDraft = { savedAt: Date.now(), amount, requestId };
-        sessionStorage.setItem(CREATE_DRAFT_KEY, JSON.stringify(draft));
+        sessionStorage.setItem(storageKey, JSON.stringify(draft));
       } catch {
         // The in-flight request still has a valid UUID even if persistence is unavailable.
       }
@@ -85,7 +86,7 @@ export function getOrCreateRequestId(amount: number): string {
 
   if (typeof sessionStorage === 'undefined') return fresh();
   try {
-    const raw = sessionStorage.getItem(CREATE_DRAFT_KEY);
+    const raw = sessionStorage.getItem(storageKey);
     if (!raw) return fresh();
     const draft = JSON.parse(raw) as StoredCreateDraft;
     const valid =
@@ -101,6 +102,18 @@ export function getOrCreateRequestId(amount: number): string {
   }
 }
 
+export function getOrCreateRequestId(amount: number): string {
+  return getOrCreateDraftRequestId(CREATE_DRAFT_KEY, amount);
+}
+
+export function getOrCreateRazorpayRequestId(amount: number): string {
+  return getOrCreateDraftRequestId(RAZORPAY_CREATE_DRAFT_KEY, amount);
+}
+
 export function clearCreateDraft(): void {
   safeRemoveSession(CREATE_DRAFT_KEY);
+}
+
+export function clearRazorpayCreateDraft(): void {
+  safeRemoveSession(RAZORPAY_CREATE_DRAFT_KEY);
 }
