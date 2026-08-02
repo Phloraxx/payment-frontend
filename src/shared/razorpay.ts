@@ -19,6 +19,19 @@ export interface RazorpayTestConfig {
   mode: 'test';
 }
 
+
+export interface RazorpayTestBank {
+  code: string;
+  name: string;
+}
+
+export interface RazorpayTestMethods {
+  mode: 'test';
+  netbanking: RazorpayTestBank[];
+  upiIntentAvailable: boolean;
+  upiQrAvailable: boolean;
+}
+
 export interface RazorpayTestOrder {
   id: string;
   amountPaise: number;
@@ -66,6 +79,39 @@ export function isRazorpayTestConfig(value: unknown): value is RazorpayTestConfi
     item.displayName.length <= 120 &&
     item.mode === 'test'
   );
+}
+
+
+export function isRazorpayTestMethods(value: unknown): value is RazorpayTestMethods {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  if (
+    item.mode !== 'test' ||
+    typeof item.upiIntentAvailable !== 'boolean' ||
+    typeof item.upiQrAvailable !== 'boolean' ||
+    !Array.isArray(item.netbanking) ||
+    item.netbanking.length > 100
+  ) {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const bank of item.netbanking) {
+    if (!bank || typeof bank !== 'object' || Array.isArray(bank)) return false;
+    const entry = bank as Record<string, unknown>;
+    if (
+      typeof entry.code !== 'string' ||
+      !/^[A-Z0-9_]{2,16}$/.test(entry.code) ||
+      seen.has(entry.code) ||
+      typeof entry.name !== 'string' ||
+      entry.name.trim() !== entry.name ||
+      entry.name.length < 2 ||
+      entry.name.length > 120
+    ) {
+      return false;
+    }
+    seen.add(entry.code);
+  }
+  return true;
 }
 
 export function isRazorpayTestOrder(value: unknown): value is RazorpayTestOrder {

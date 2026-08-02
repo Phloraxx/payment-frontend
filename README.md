@@ -91,6 +91,10 @@ RAZORPAY_TEST_URL=http://paygate-razorpay-test:3000
 RAZORPAY_TEST_API_KEY=<separate internal key>
 ```
 
+The Test Mode customer flow uses Razorpay Custom Checkout (`razorpay.js`), not the Standard Checkout modal. The IEEE portal renders the enabled bank list from Razorpay's Methods API, creates the payment with the selected bank, and leaves only the secure demo-bank authentication outside the portal. The external methods response is normalized, size-limited and cached for five minutes; the browser receives bank codes/names only.
+
+Direct UPI remains the default rail. Razorpay Test Mode cannot reproduce the final Live Mode UPI Intent/QR experience, so this seamless test flow uses enabled netbanking methods rather than a deprecated UPI Collect simulation.
+
 The approved public webhook URL is:
 
 ```text

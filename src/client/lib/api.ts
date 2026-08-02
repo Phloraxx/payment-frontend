@@ -2,9 +2,11 @@ import type { ApiErrorBody, CreatePaymentRequest, PublicPayment } from '../../sh
 import { isPublicPayment } from '../../shared/payment.js';
 import {
   isRazorpayTestConfig,
+  isRazorpayTestMethods,
   isRazorpayTestOrder,
   type CreateRazorpayTestRequest,
   type RazorpayTestConfig,
+  type RazorpayTestMethods,
   type RazorpayTestOrder,
   type VerifyRazorpayTestRequest,
 } from '../../shared/razorpay.js';
@@ -95,6 +97,10 @@ async function requestRazorpay<T>(
 
 export function getRazorpayTestConfig(): Promise<RazorpayTestConfig> {
   return requestRazorpay('/api/razorpay/test/config', isRazorpayTestConfig);
+}
+
+export function getRazorpayTestMethods(): Promise<RazorpayTestMethods> {
+  return requestRazorpay('/api/razorpay/test/methods', isRazorpayTestMethods);
 }
 
 export function createRazorpayTestOrder(input: CreateRazorpayTestRequest): Promise<RazorpayTestOrder> {

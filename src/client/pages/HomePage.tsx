@@ -135,7 +135,7 @@ export function HomePage() {
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? <CircleNotch className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-            {submitting ? 'Creating payment…' : method === 'razorpay-test' ? 'Open Razorpay Test' : 'Generate UPI payment'}
+            {submitting ? 'Creating payment…' : method === 'razorpay-test' ? 'Continue to Razorpay Test' : 'Generate UPI payment'}
           </button>
         </form>
 
