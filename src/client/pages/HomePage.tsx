@@ -1,16 +1,32 @@
-import { ArrowRight, CircleNotch, CurrencyInr } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { ArrowRight, CircleNotch, CreditCard, CurrencyInr, QrCode } from '@phosphor-icons/react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { PageShell } from '../components/PageShell';
-import { ClientApiError, createPayment } from '../lib/api.js';
-import { clearCreateDraft, getOrCreateRequestId, savePaymentSession } from '../lib/session.js';
+import { ClientApiError, createPayment, createRazorpayTestOrder, getRazorpayTestConfig } from '../lib/api.js';
+import {
+  clearCreateDraft,
+  clearRazorpayCreateDraft,
+  getOrCreateRazorpayRequestId,
+  getOrCreateRequestId,
+  savePaymentSession,
+} from '../lib/session.js';
 
 export function HomePage() {
   const navigate = useNavigate();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [method, setMethod] = useState<'upi' | 'razorpay-test'>('upi');
+  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let active = true;
+    void getRazorpayTestConfig()
+      .then((config) => { if (active) setRazorpayEnabled(config.enabled); })
+      .catch(() => { if (active) setRazorpayEnabled(false); });
+    return () => { active = false; };
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -23,13 +39,21 @@ export function HomePage() {
     setSubmitting(true);
     setError(undefined);
     try {
-      // Reuse this idempotency key after a lost response so retrying cannot
-      // reserve a second DDM amount for the same checkout attempt.
-      const requestId = getOrCreateRequestId(rupees);
-      const payment = await createPayment({ amount: rupees, requestId });
-      savePaymentSession(payment);
-      clearCreateDraft();
-      navigate(`/pay/${payment.id}`);
+      if (method === 'razorpay-test') {
+        if (!razorpayEnabled) throw new ClientApiError('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is unavailable.', 404);
+        const requestId = getOrCreateRazorpayRequestId(rupees);
+        const order = await createRazorpayTestOrder({ amount: rupees, requestId });
+        clearRazorpayCreateDraft();
+        navigate(`/razorpay-test/${order.id}`);
+      } else {
+        // Reuse this idempotency key after a lost response so retrying cannot
+        // reserve a second DDM amount for the same checkout attempt.
+        const requestId = getOrCreateRequestId(rupees);
+        const payment = await createPayment({ amount: rupees, requestId });
+        savePaymentSession(payment);
+        clearCreateDraft();
+        navigate(`/pay/${payment.id}`);
+      }
     } catch (requestError) {
       setError(requestError instanceof ClientApiError ? requestError.message : 'Unable to create the payment right now.');
     } finally {
@@ -43,10 +67,42 @@ export function HomePage() {
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">New payment</p>
         <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-950">How much should be paid?</h2>
         <p className="mt-3 text-sm leading-relaxed text-slate-500">
-          Enter the original amount in whole rupees. PayGate will add a small paise verification adjustment.
+          Choose direct UPI verification or Razorpay Test Mode, then enter a whole-rupee amount.
         </p>
 
-        <form onSubmit={submit} className="mt-8 space-y-5">
+        <div className="mt-7 grid grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={method === 'upi'}
+            onClick={() => { setMethod('upi'); setError(undefined); }}
+            className={`rounded-2xl border p-4 text-left transition ${method === 'upi' ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+          >
+            <QrCode className="h-6 w-6" />
+            <strong className="mt-3 block text-sm">Direct UPI</strong>
+            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified by bank SMS.</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={method === 'razorpay-test'}
+            disabled={!razorpayEnabled}
+            onClick={() => { setMethod('razorpay-test'); setError(undefined); }}
+            className={`rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${method === 'razorpay-test' ? 'border-sky-700 bg-sky-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+          >
+            <CreditCard className="h-6 w-6" />
+            <strong className="mt-3 block text-sm">Razorpay Test</strong>
+            <span className={`mt-1 block text-xs leading-relaxed ${method === 'razorpay-test' ? 'text-sky-100' : 'text-slate-500'}`}>{razorpayEnabled ? 'Mock Checkout—no real money.' : 'Temporarily unavailable.'}</span>
+          </button>
+        </div>
+
+        {method === 'razorpay-test' && razorpayEnabled && (
+          <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-800">
+            <strong>Test Mode:</strong> Razorpay will simulate the payment. No real money is charged or settled.
+          </div>
+        )}
+
+        <form onSubmit={submit} className="mt-6 space-y-5">
           <label className="block">
             <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Amount</span>
             <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 transition focus-within:border-slate-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-slate-100">
@@ -79,12 +135,14 @@ export function HomePage() {
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? <CircleNotch className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-            {submitting ? 'Creating payment…' : 'Generate payment'}
+            {submitting ? 'Creating payment…' : method === 'razorpay-test' ? 'Open Razorpay Test' : 'Generate UPI payment'}
           </button>
         </form>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-slate-400">
-          The payment destination and exact payable amount always come from PayGate.
+          {method === 'razorpay-test'
+            ? 'Razorpay Test Mode is isolated from the direct-UPI payment records.'
+            : 'The payment destination and exact payable amount always come from PayGate.'}
         </p>
       </div>
     </PageShell>

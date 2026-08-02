@@ -2,6 +2,9 @@ export interface ServerConfig {
   port: number;
   payGateUrl: string;
   payGateApiKey: string;
+  razorpayTestEnabled: boolean;
+  razorpayTestUrl: string;
+  razorpayTestApiKey: string;
   trustProxyHeaders: boolean;
   creationRateLimit: number;
   creationWindowMs: number;
@@ -49,25 +52,44 @@ function parseBoolean(name: string, raw: string | undefined, fallback: boolean):
   throw new Error(`${name} must be true or false`);
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const payGateUrl = required('PAYGATE_URL', env).replace(/\/+$/, '');
-  const parsedUrl = new URL(payGateUrl);
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('PAYGATE_URL must use http or https');
-  }
-  if (parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash || (parsedUrl.pathname !== '/' && parsedUrl.pathname !== '')) {
-    throw new Error('PAYGATE_URL must be an origin without credentials, path, query or fragment');
-  }
 
+function parseOrigin(name: string, raw: string): string {
+  const value = raw.replace(/\/+$/, '');
+  const parsed = new URL(value);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${name} must use http or https`);
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '')) {
+    throw new Error(`${name} must be an origin without credentials, path, query or fragment`);
+  }
+  return value;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const payGateUrl = parseOrigin('PAYGATE_URL', required('PAYGATE_URL', env));
   const payGateApiKey = required('PAYGATE_API_KEY', env);
   if (payGateApiKey.length < 24) {
     throw new Error('PAYGATE_API_KEY must be at least 24 characters');
+  }
+
+  const razorpayTestEnabled = parseBoolean('RAZORPAY_TEST_ENABLED', env.RAZORPAY_TEST_ENABLED, false);
+  let razorpayTestUrl = '';
+  let razorpayTestApiKey = '';
+  if (razorpayTestEnabled) {
+    razorpayTestUrl = parseOrigin('RAZORPAY_TEST_URL', required('RAZORPAY_TEST_URL', env));
+    razorpayTestApiKey = required('RAZORPAY_TEST_API_KEY', env);
+    if (razorpayTestApiKey.length < 24) {
+      throw new Error('RAZORPAY_TEST_API_KEY must be at least 24 characters');
+    }
   }
 
   return {
     port: parsePort(env.PORT),
     payGateUrl,
     payGateApiKey,
+    razorpayTestEnabled,
+    razorpayTestUrl,
+    razorpayTestApiKey,
     trustProxyHeaders: parseBoolean('TRUST_PROXY_HEADERS', env.TRUST_PROXY_HEADERS, false),
     creationRateLimit: parsePositiveInt('PAYMENT_CREATE_LIMIT', env.PAYMENT_CREATE_LIMIT, 5),
     creationWindowMs: parseWindowMs('PAYMENT_CREATE_WINDOW_SECONDS', env.PAYMENT_CREATE_WINDOW_SECONDS, 300),

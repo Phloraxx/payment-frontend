@@ -80,3 +80,21 @@ npm audit --audit-level=high
 
 docker build -t payment-frontend .
 ```
+
+## Razorpay Test Mode
+
+The public portal can optionally expose a separate Razorpay Test Mode checkout while keeping direct UPI as the default. The browser talks only to this Hono server; the server uses `RAZORPAY_TEST_API_KEY` to reach an isolated PayGate test service and never exposes that key.
+
+```text
+RAZORPAY_TEST_ENABLED=true
+RAZORPAY_TEST_URL=http://paygate-razorpay-test:3000
+RAZORPAY_TEST_API_KEY=<separate internal key>
+```
+
+The approved public webhook URL is:
+
+```text
+https://pay.ieeesahrdaya.com/api/razorpay/test/webhook
+```
+
+`cloudflare/worker.ts` is a thin custom-domain proxy from `pay.ieeesahrdaya.com` to the maintained Oracle/Dokploy portal at `payment.mulearnscet.in`. It contains no Razorpay credentials or payment state.

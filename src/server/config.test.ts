@@ -30,3 +30,25 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...goodEnv, PAYMENT_STATUS_LIMIT: '0' })).toThrow(/positive integer/);
   });
 });
+
+
+it('requires an isolated Razorpay Test origin and API key only when enabled', () => {
+  const disabled = loadConfig(goodEnv);
+  expect(disabled.razorpayTestEnabled).toBe(false);
+  expect(disabled.razorpayTestUrl).toBe('');
+  expect(() => loadConfig({ ...goodEnv, RAZORPAY_TEST_ENABLED: 'true' })).toThrow(/RAZORPAY_TEST_URL/);
+  expect(() => loadConfig({
+    ...goodEnv,
+    RAZORPAY_TEST_ENABLED: 'true',
+    RAZORPAY_TEST_URL: 'https://user:pass@test.example.com/api',
+    RAZORPAY_TEST_API_KEY: 'x'.repeat(32),
+  })).toThrow(/must be an origin/);
+  const enabled = loadConfig({
+    ...goodEnv,
+    RAZORPAY_TEST_ENABLED: 'true',
+    RAZORPAY_TEST_URL: 'http://paygate-razorpay-test:3000/',
+    RAZORPAY_TEST_API_KEY: 'r'.repeat(32),
+  });
+  expect(enabled.razorpayTestEnabled).toBe(true);
+  expect(enabled.razorpayTestUrl).toBe('http://paygate-razorpay-test:3000');
+});
