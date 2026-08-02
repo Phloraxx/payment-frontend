@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isRazorpayTestConfig, isRazorpayTestOrder } from './razorpay.js';
+import { isRazorpayTestConfig, isRazorpayTestMethods, isRazorpayTestOrder } from './razorpay.js';
 
 const order = {
   id: 'razorpayorder01', amountPaise: 100, currency: 'INR', status: 'created', externalId: 'portal:test',
@@ -21,4 +21,20 @@ describe('Razorpay Test response validation', () => {
     expect(isRazorpayTestOrder({ ...order, keyId: 'rzp_live_public123' })).toBe(false);
     expect(isRazorpayTestOrder({ ...order, razorpayOrderId: 'javascript:bad' })).toBe(false);
   });
+
+  it('accepts only normalized unique enabled bank methods', () => {
+    const methods = {
+      mode: 'test',
+      netbanking: [
+        { code: 'AUBL', name: 'AU Small Finance Bank' },
+        { code: 'YESB', name: 'Yes Bank' },
+      ],
+      upiIntentAvailable: true,
+      upiQrAvailable: false,
+    };
+    expect(isRazorpayTestMethods(methods)).toBe(true);
+    expect(isRazorpayTestMethods({ ...methods, netbanking: [...methods.netbanking, methods.netbanking[0]] })).toBe(false);
+    expect(isRazorpayTestMethods({ ...methods, netbanking: [{ code: 'bad code', name: 'Bad Bank' }] })).toBe(false);
+  });
+
 });

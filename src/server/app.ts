@@ -20,7 +20,7 @@ const HEX_SIGNATURE_RE = /^[a-f0-9]{64}$/i;
 export interface AppDependencies {
   config: ServerConfig;
   payGate: Pick<PayGateClient, 'createPayment' | 'getPayment'>;
-  razorpayTest?: Pick<RazorpayTestClient, 'getConfig' | 'createOrder' | 'getOrder' | 'verifyOrder' | 'forwardWebhook'>;
+  razorpayTest?: Pick<RazorpayTestClient, 'getConfig' | 'getMethods' | 'createOrder' | 'getOrder' | 'verifyOrder' | 'forwardWebhook'>;
   createPerIpLimiter: FixedWindowLimiter;
   createGlobalLimiter: FixedWindowLimiter;
   statusPerIpLimiter: FixedWindowLimiter;
@@ -153,7 +153,11 @@ export function createApiApp(deps: AppDependencies): Hono {
         scriptSrc: deps.config.razorpayTestEnabled
           ? ["'self'", 'https://checkout.razorpay.com']
           : ["'self'"],
-        styleSrc: ["'self'"],
+        // Razorpay Custom Checkout opens a secure processing window that
+        // inherits the opener policy before navigating. Its SDK applies
+        // dynamic inline styles there, so allow styles (not scripts) only
+        // while the isolated Test Mode rail is enabled.
+        styleSrc: deps.config.razorpayTestEnabled ? ["'self'", "'unsafe-inline'"] : ["'self'"],
       },
       permissionsPolicy: {
         camera: [],
@@ -248,6 +252,26 @@ export function createApiApp(deps: AppDependencies): Hono {
     }
     try {
       return c.json(await deps.razorpayTest.getConfig());
+    } catch (error) {
+      if (error instanceof RazorpayTestProxyError) {
+        return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));
+      }
+      throw error;
+    }
+  });
+
+  app.get('/api/razorpay/test/methods', async (c) => {
+    if (!deps.config.razorpayTestEnabled || !deps.razorpayTest) {
+      return c.json(errorBody('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is disabled.'), 404);
+    }
+    const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+    const denied = takeScopedQuota(deps.statusPerIpLimiter, deps.statusGlobalLimiter, clientIp);
+    if (denied) {
+      c.header('Retry-After', String(denied.retryAfterSeconds));
+      return c.json(errorBody('RATE_LIMITED', 'Too many payment-method requests. Please wait and try again.'), 429);
+    }
+    try {
+      return c.json(await deps.razorpayTest.getMethods());
     } catch (error) {
       if (error instanceof RazorpayTestProxyError) {
         return c.json(errorBody(error.code, error.message), razorpayErrorStatus(error.status));

@@ -1,67 +1,37 @@
-import { ArrowLeft, CheckCircle, CircleNotch, CreditCard, WarningCircle, XCircle } from '@phosphor-icons/react';
+import {
+  ArrowLeft,
+  CheckCircle,
+  CircleNotch,
+  Bank,
+  ShieldCheck,
+  WarningCircle,
+  XCircle,
+} from '@phosphor-icons/react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 
-import type { RazorpayTestOrder, VerifyRazorpayTestRequest } from '../../shared/razorpay.js';
+import type { RazorpayTestMethods, RazorpayTestOrder, VerifyRazorpayTestRequest } from '../../shared/razorpay.js';
 import { isRazorpayTestTerminal } from '../../shared/razorpay.js';
 import { PageShell } from '../components/PageShell';
-import { ClientApiError, getRazorpayTestOrder, verifyRazorpayTestOrder } from '../lib/api.js';
+import { ClientApiError, getRazorpayTestMethods, getRazorpayTestOrder, verifyRazorpayTestOrder } from '../lib/api.js';
+import {
+  buildNetbankingTestPayment,
+  loadRazorpayCustomSdk,
+  razorpayPaymentErrorMessage,
+  type RazorpayCustomErrorResponse,
+} from '../lib/razorpay-custom.js';
 import { formatRupeesFromPaise } from '../lib/money.js';
 
-type RazorpayCheckoutResponse = VerifyRazorpayTestRequest;
+type SdkState = 'loading' | 'ready' | 'error';
 
-interface RazorpayCheckoutInstance {
-  open(): void;
-  on(event: 'payment.failed', callback: (response: { error?: { description?: string } }) => void): void;
-}
-
-interface RazorpayCheckoutConstructor {
-  new (options: {
-    key: string;
-    amount: number;
-    currency: string;
-    name: string;
-    description: string;
-    order_id: string;
-    handler: (response: RazorpayCheckoutResponse) => void;
-    modal: { ondismiss: () => void };
-    theme: { color: string };
-  }): RazorpayCheckoutInstance;
-}
-
-declare global {
-  interface Window {
-    Razorpay?: RazorpayCheckoutConstructor;
-  }
-}
-
-let checkoutScriptPromise: Promise<void> | undefined;
-
-function loadCheckoutScript(): Promise<void> {
-  if (window.Razorpay) return Promise.resolve();
-  if (checkoutScriptPromise) return checkoutScriptPromise;
-  checkoutScriptPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-razorpay-checkout]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error('Razorpay Checkout failed to load.')), { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.async = true;
-    script.dataset.razorpayCheckout = 'true';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Razorpay Checkout failed to load.'));
-    document.head.append(script);
-  });
-  return checkoutScriptPromise;
-}
 export function RazorpayTestPage() {
   const { id = '' } = useParams();
   const [order, setOrder] = useState<RazorpayTestOrder>();
   const [loading, setLoading] = useState(true);
-  const [opening, setOpening] = useState(false);
+  const [sdkState, setSdkState] = useState<SdkState>('loading');
+  const [methods, setMethods] = useState<RazorpayTestMethods>();
+  const [selectedBank, setSelectedBank] = useState('');
+  const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -70,7 +40,6 @@ export function RazorpayTestPage() {
     try {
       const value = await getRazorpayTestOrder(id, signal);
       setOrder(value);
-      setError(undefined);
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
       setError(requestError instanceof ClientApiError ? requestError.message : 'Unable to load the Razorpay test order.');
@@ -89,59 +58,72 @@ export function RazorpayTestPage() {
   }, [refresh]);
 
   useEffect(() => {
+    let active = true;
+    void Promise.all([loadRazorpayCustomSdk(), getRazorpayTestMethods()])
+      .then(([, enabledMethods]) => {
+        if (!active) return;
+        setMethods(enabledMethods);
+        setSelectedBank(enabledMethods.netbanking[0]?.code ?? '');
+        setSdkState('ready');
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setSdkState('error');
+        setError(requestError instanceof ClientApiError
+          ? requestError.message
+          : 'Razorpay secure processing could not be loaded. Please refresh and try again.');
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (!order || isRazorpayTestTerminal(order.status)) return;
     const timer = window.setInterval(() => void refresh(), 2_500);
     return () => window.clearInterval(timer);
   }, [order, refresh]);
 
-  const verify = useCallback(async (response: RazorpayCheckoutResponse) => {
+  const verify = useCallback(async (response: VerifyRazorpayTestRequest) => {
     if (!order) return;
-    setOpening(true);
-    setMessage('Checkout response received. Verifying with Razorpay…');
+    setMessage('Payment response received. Verifying securely with Razorpay…');
     setError(undefined);
     try {
       const updated = await verifyRazorpayTestOrder(order.id, response);
       setOrder(updated);
-      setMessage(updated.status === 'captured' ? 'Test payment captured successfully.' : 'Signature verified. Waiting for provider capture confirmation.');
+      setMessage(updated.status === 'captured'
+        ? 'Test payment captured successfully.'
+        : 'Signature verified. Waiting for provider capture confirmation.');
     } catch (requestError) {
       setError(requestError instanceof ClientApiError ? requestError.message : 'Could not verify the Razorpay test payment.');
     } finally {
-      setOpening(false);
+      setProcessing(false);
     }
   }, [order]);
-  const openCheckout = async () => {
-    if (!order || order.status !== 'created' || !order.razorpayOrderId) return;
-    setOpening(true);
+
+  const handlePaymentError = useCallback((response: RazorpayCustomErrorResponse) => {
+    setProcessing(false);
     setMessage(undefined);
+    setError(razorpayPaymentErrorMessage(response));
+  }, []);
+
+  const startPayment = () => {
+    if (!order || order.status !== 'created' || sdkState !== 'ready' || !window.Razorpay || !selectedBank) return;
+    const bank = methods?.netbanking.find((item) => item.code === selectedBank);
+    if (!bank) {
+      setError('Select an enabled bank before continuing.');
+      return;
+    }
+    setProcessing(true);
+    setMessage(`Opening ${bank.name} secure Test Mode authentication…`);
     setError(undefined);
     try {
-      await loadCheckoutScript();
-      if (!window.Razorpay) throw new Error('Razorpay Checkout is unavailable.');
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amountPaise,
-        currency: order.currency,
-        name: order.displayName,
-        description: 'IEEE Sahrdaya Razorpay Test payment',
-        order_id: order.razorpayOrderId,
-        handler: (response) => void verify(response),
-        modal: {
-          ondismiss: () => {
-            setOpening(false);
-            setMessage('Checkout closed. The test order is still available.');
-          },
-        },
-        theme: { color: '#0f172a' },
-      });
-      checkout.on('payment.failed', (response) => {
-        setOpening(false);
-        setError(response.error?.description || 'Razorpay reported a failed test payment.');
-        void refresh();
-      });
-      checkout.open();
-    } catch (checkoutError) {
-      setOpening(false);
-      setError(checkoutError instanceof Error ? checkoutError.message : 'Unable to open Razorpay Checkout.');
+      const razorpay = new window.Razorpay({ key: order.keyId, redirect: false });
+      razorpay.on('payment.success', (response) => void verify(response));
+      razorpay.on('payment.error', handlePaymentError);
+      razorpay.createPayment(buildNetbankingTestPayment(order, bank.code));
+    } catch (paymentError) {
+      setProcessing(false);
+      setMessage(undefined);
+      setError(paymentError instanceof Error ? paymentError.message : 'Unable to start Razorpay Custom Checkout.');
     }
   };
 
@@ -155,21 +137,70 @@ export function RazorpayTestPage() {
   const captured = order.status === 'captured';
   const failed = order.status === 'failed' || order.status === 'create_failed';
   const waiting = !captured && !failed && order.status !== 'created';
+
   return (
-    <PageShell>
+    <PageShell brandVariant="razorpay-test">
       <div className="relative z-10">
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-800">
-          <strong>Razorpay Test Mode:</strong> this checkout is simulated. No real money is charged or settled.
+          <strong>Razorpay Test Mode:</strong> this is a simulated bank payment. No real money is charged or settled.
         </div>
 
         <div className="mt-7 text-center">
           <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl ${captured ? 'bg-emerald-50 text-emerald-700' : failed ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
-            {captured ? <CheckCircle weight="fill" className="h-9 w-9" /> : failed ? <XCircle weight="fill" className="h-9 w-9" /> : waiting ? <CircleNotch className="h-9 w-9 animate-spin" /> : <CreditCard className="h-9 w-9" />}
+            {captured ? <CheckCircle weight="fill" className="h-9 w-9" /> : failed ? <XCircle weight="fill" className="h-9 w-9" /> : waiting ? <CircleNotch className="h-9 w-9 animate-spin" /> : <Bank className="h-9 w-9" />}
           </div>
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Razorpay Test order</p>
+          <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">IEEE Razorpay Test Checkout</p>
           <h2 className="mt-2 text-3xl font-bold tracking-[-0.04em] text-slate-950">{formatRupeesFromPaise(order.amountPaise)}</h2>
           <p className="mt-2 text-sm text-slate-500">Status: <span className="font-semibold text-slate-800">{order.status.replaceAll('_', ' ')}</span></p>
         </div>
+
+        {order.status === 'created' && (
+          <section className="mt-7 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-950">Choose your test bank</h3>
+                <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                  Choose an enabled bank inside the IEEE portal. Only the bank authentication step opens securely through Razorpay.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <label htmlFor="razorpay-test-bank" className="mb-2 block text-sm font-semibold text-slate-700">
+                Bank
+              </label>
+              <select
+                id="razorpay-test-bank"
+                value={selectedBank}
+                onChange={(event) => { setSelectedBank(event.target.value); setError(undefined); }}
+                disabled={sdkState !== 'ready' || processing}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {methods?.netbanking.length ? methods.netbanking.map((bank) => (
+                  <option key={bank.code} value={bank.code}>{bank.name}</option>
+                )) : <option value="">No enabled banks available</option>}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={startPayment}
+              disabled={sdkState !== 'ready' || processing || !selectedBank}
+              className="button-primary mt-4 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {processing ? <CircleNotch className="h-5 w-5 animate-spin" /> : <ShieldCheck className="h-5 w-5" />}
+              {processing ? 'Opening secure bank page…' : 'Continue securely'}
+            </button>
+
+            <p className="mt-4 text-center text-xs leading-relaxed text-slate-400">
+              Razorpay’s payment-method popup is removed. Its secure demo bank page will let you choose Success or Failure.
+            </p>
+            {sdkState === 'loading' && <p className="mt-3 text-center text-xs font-medium text-slate-500">Loading enabled banks and secure payment SDK…</p>}
+          </section>
+        )}
 
         {captured && (
           <div role="status" className="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-center text-sm leading-relaxed text-emerald-800">
@@ -183,12 +214,6 @@ export function RazorpayTestPage() {
         )}
         {message && !captured && <div role="status" className="mt-7 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-center text-sm text-slate-700">{message}</div>}
         {error && <div role="alert" className="mt-7 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-center text-sm text-red-700">{error}</div>}
-        {order.status === 'created' && (
-          <button onClick={() => void openCheckout()} disabled={opening} className="button-primary mt-7 disabled:cursor-not-allowed disabled:opacity-60">
-            {opening ? <CircleNotch className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
-            {opening ? 'Opening Checkout…' : 'Open Razorpay Test Checkout'}
-          </button>
-        )}
         {waiting && (
           <button onClick={() => void refresh()} className="button-secondary mt-7">
             <CircleNotch className="h-5 w-5" />
@@ -213,7 +238,7 @@ export function RazorpayTestPage() {
 
 function CenteredState({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
   return (
-    <PageShell>
+    <PageShell brandVariant="razorpay-test">
       <div className="relative z-10 text-center">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">{icon}</div>
         <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">{title}</h2>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PublicPayment } from '../shared/payment.js';
-import type { RazorpayTestConfig, RazorpayTestOrder } from '../shared/razorpay.js';
+import type { RazorpayTestConfig, RazorpayTestMethods, RazorpayTestOrder } from '../shared/razorpay.js';
 import { createApiApp } from './app.js';
 import type { ServerConfig } from './config.js';
 import { FixedWindowLimiter } from './rate-limit.js';
@@ -18,6 +18,17 @@ const razorpayConfig: RazorpayTestConfig = {
   keyId: 'rzp_test_public123',
   displayName: 'IEEE Sahrdaya Razorpay Test',
   mode: 'test',
+};
+
+
+const razorpayMethods: RazorpayTestMethods = {
+  mode: 'test',
+  netbanking: [
+    { code: 'AUBL', name: 'AU Small Finance Bank' },
+    { code: 'YESB', name: 'Yes Bank' },
+  ],
+  upiIntentAvailable: true,
+  upiQrAvailable: false,
 };
 
 const razorpayOrder: RazorpayTestOrder = {
@@ -58,6 +69,7 @@ function makeApp({
   };
   const razorpayTest = {
     getConfig: vi.fn().mockResolvedValue(razorpayConfig),
+    getMethods: vi.fn().mockResolvedValue(razorpayMethods),
     createOrder: vi.fn().mockResolvedValue(razorpayOrder),
     getOrder: vi.fn().mockResolvedValue(razorpayOrder),
     verifyOrder: vi.fn().mockResolvedValue({ ...razorpayOrder, status: 'captured' as const }),
@@ -198,6 +210,7 @@ describe('API', () => {
     expect((await app.request('/api/razorpay/test/orders', {
       method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
     })).status).toBe(404);
+    expect((await app.request('/api/razorpay/test/methods', { headers })).status).toBe(404);
   });
 
   it('creates and verifies Razorpay Test orders through the private client', async () => {
@@ -205,6 +218,10 @@ describe('API', () => {
     const configResponse = await app.request('/api/razorpay/test/config');
     expect(configResponse.status).toBe(200);
     expect(await configResponse.json()).toEqual(razorpayConfig);
+    const methodsResponse = await app.request('/api/razorpay/test/methods', { headers });
+    expect(methodsResponse.status).toBe(200);
+    expect(await methodsResponse.json()).toEqual(razorpayMethods);
+    expect(razorpayTest.getMethods).toHaveBeenCalledOnce();
     const create = await app.request('/api/razorpay/test/orders', {
       method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
     });
@@ -263,7 +280,8 @@ describe('API', () => {
     const csp = root.headers.get('content-security-policy') ?? '';
     expect(csp).toContain('https://checkout.razorpay.com');
     expect(csp).toContain('frame-src https://api.razorpay.com https://*.razorpay.com');
-    expect(csp).not.toContain("'unsafe-inline'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).not.toContain("'unsafe-eval'");
   });
 
