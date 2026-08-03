@@ -1,4 +1,14 @@
 import type { ApiErrorBody, CreatePaymentRequest, PublicPayment } from '../../shared/payment.js';
+import {
+  isRazorpayLiveConfig,
+  isRazorpayLiveMethods,
+  isRazorpayLiveOrder,
+  type CreateRazorpayLiveRequest,
+  type RazorpayLiveConfig,
+  type RazorpayLiveMethods,
+  type RazorpayLiveOrder,
+  type VerifyRazorpayLiveRequest,
+} from '../../shared/razorpay-live.js';
 import { isPublicPayment } from '../../shared/payment.js';
 import {
   isRazorpayTestConfig,
@@ -120,6 +130,38 @@ export function verifyRazorpayTestOrder(
   input: VerifyRazorpayTestRequest,
 ): Promise<RazorpayTestOrder> {
   return requestRazorpay(`/api/razorpay/test/orders/${encodeURIComponent(id)}/verify`, isRazorpayTestOrder, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+
+export function getRazorpayLiveConfig(): Promise<RazorpayLiveConfig> {
+  return requestRazorpay('/api/razorpay/live/config', isRazorpayLiveConfig);
+}
+
+export function getRazorpayLiveMethods(): Promise<RazorpayLiveMethods> {
+  return requestRazorpay('/api/razorpay/live/methods', isRazorpayLiveMethods);
+}
+
+export function createRazorpayLiveOrder(input: CreateRazorpayLiveRequest): Promise<RazorpayLiveOrder> {
+  return requestRazorpay('/api/razorpay/live/orders', isRazorpayLiveOrder, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getRazorpayLiveOrder(id: string, signal?: AbortSignal): Promise<RazorpayLiveOrder> {
+  return requestRazorpay(`/api/razorpay/live/orders/${encodeURIComponent(id)}`, isRazorpayLiveOrder, { signal });
+}
+
+export function verifyRazorpayLiveOrder(
+  id: string,
+  input: VerifyRazorpayLiveRequest,
+): Promise<RazorpayLiveOrder> {
+  return requestRazorpay(`/api/razorpay/live/orders/${encodeURIComponent(id)}/verify`, isRazorpayLiveOrder, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

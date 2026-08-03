@@ -52,3 +52,24 @@ it('requires an isolated Razorpay Test origin and API key only when enabled', ()
   expect(enabled.razorpayTestEnabled).toBe(true);
   expect(enabled.razorpayTestUrl).toBe('http://paygate-razorpay-test:3000');
 });
+
+it('requires an isolated Razorpay Live origin and API key only when enabled', () => {
+  const disabled = loadConfig(goodEnv);
+  expect(disabled.razorpayLiveEnabled).toBe(false);
+  expect(disabled.razorpayLiveUrl).toBe('');
+  expect(() => loadConfig({ ...goodEnv, RAZORPAY_LIVE_ENABLED: 'true' })).toThrow(/RAZORPAY_LIVE_URL/);
+  expect(() => loadConfig({
+    ...goodEnv,
+    RAZORPAY_LIVE_ENABLED: 'true',
+    RAZORPAY_LIVE_URL: 'https://user:pass@live.example.com/api',
+    RAZORPAY_LIVE_API_KEY: 'x'.repeat(32),
+  })).toThrow(/must be an origin/);
+  const enabled = loadConfig({
+    ...goodEnv,
+    RAZORPAY_LIVE_ENABLED: 'true',
+    RAZORPAY_LIVE_URL: 'http://paygate-razorpay-live:3000/',
+    RAZORPAY_LIVE_API_KEY: 'l'.repeat(32),
+  });
+  expect(enabled.razorpayLiveEnabled).toBe(true);
+  expect(enabled.razorpayLiveUrl).toBe('http://paygate-razorpay-live:3000');
+});

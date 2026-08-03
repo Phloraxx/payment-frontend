@@ -1,3 +1,4 @@
+import type { RazorpayLiveOrder } from '../../shared/razorpay-live.js';
 import type { RazorpayTestOrder, VerifyRazorpayTestRequest } from '../../shared/razorpay.js';
 
 export const RAZORPAY_CUSTOM_SCRIPT_URL = 'https://checkout.razorpay.com/v1/razorpay.js';
@@ -49,17 +50,22 @@ export function razorpayPaymentErrorMessage(response: RazorpayCustomErrorRespons
 }
 
 
-export function buildRazorpayCallbackUrl(orderId: string, origin: string): string {
+export function buildRazorpayCallbackUrl(
+  orderId: string,
+  origin: string,
+  mode: 'test' | 'live' = 'test',
+): string {
   if (!/^[a-z0-9_-]{8,64}$/i.test(orderId)) throw new Error('Invalid Razorpay order callback ID.');
-  const url = new URL('/api/razorpay/test/callback', origin);
+  const url = new URL(`/api/razorpay/${mode}/callback`, origin);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid Razorpay callback origin.');
   url.searchParams.set('order', orderId);
   return url.toString();
 }
 
 export function buildNetbankingTestPayment(
-  order: RazorpayTestOrder,
+  order: RazorpayTestOrder | RazorpayLiveOrder,
   bankCode: string,
+  mode: 'test' | 'live' = 'test',
 ): RazorpayNetbankingTestData {
   if (!order.razorpayOrderId) throw new Error('Razorpay order is not ready.');
   if (!/^[A-Z0-9_]{2,16}$/.test(bankCode)) throw new Error('Select a valid enabled bank.');
@@ -71,7 +77,7 @@ export function buildNetbankingTestPayment(
     bank: bankCode,
     email: 'test@example.com',
     contact: '9123456780',
-    description: 'IEEE Sahrdaya Razorpay Test payment',
+    description: mode === 'live' ? 'IEEE Sahrdaya Razorpay Live ₹1 pilot' : 'IEEE Sahrdaya Razorpay Test payment',
   };
 }
 

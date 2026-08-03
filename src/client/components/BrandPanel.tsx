@@ -1,7 +1,7 @@
 import { Lightning, ShieldCheck } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
-export type BrandPanelVariant = 'direct-upi' | 'razorpay-test';
+export type BrandPanelVariant = 'direct-upi' | 'razorpay-test' | 'razorpay-live';
 
 const content = {
   'direct-upi': {
@@ -29,6 +29,20 @@ const content = {
       {
         title: 'Server-verified result',
         description: 'The signed Razorpay response is verified by the server before the test payment is shown as captured.',
+      },
+    ],
+  },
+  'razorpay-live': {
+    badge: 'Razorpay Live ₹1 pilot',
+    description: 'A hidden, server-capped Live Mode checkout for validating one real ₹1 payment before broader activation.',
+    cards: [
+      {
+        title: 'Hard ₹1 limit',
+        description: 'Both the portal and isolated Live service reject every amount except exactly ₹1 during the pilot.',
+      },
+      {
+        title: 'Signed verification',
+        description: 'The Live callback and webhook are verified independently before the transaction is shown as captured.',
       },
     ],
   },

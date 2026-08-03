@@ -5,6 +5,9 @@ export interface ServerConfig {
   razorpayTestEnabled: boolean;
   razorpayTestUrl: string;
   razorpayTestApiKey: string;
+  razorpayLiveEnabled: boolean;
+  razorpayLiveUrl: string;
+  razorpayLiveApiKey: string;
   trustProxyHeaders: boolean;
   creationRateLimit: number;
   creationWindowMs: number;
@@ -83,6 +86,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     }
   }
 
+  const razorpayLiveEnabled = parseBoolean('RAZORPAY_LIVE_ENABLED', env.RAZORPAY_LIVE_ENABLED, false);
+  let razorpayLiveUrl = '';
+  let razorpayLiveApiKey = '';
+  if (razorpayLiveEnabled) {
+    razorpayLiveUrl = parseOrigin('RAZORPAY_LIVE_URL', required('RAZORPAY_LIVE_URL', env));
+    razorpayLiveApiKey = required('RAZORPAY_LIVE_API_KEY', env);
+    if (razorpayLiveApiKey.length < 24) {
+      throw new Error('RAZORPAY_LIVE_API_KEY must be at least 24 characters');
+    }
+  }
+
   return {
     port: parsePort(env.PORT),
     payGateUrl,
@@ -90,6 +104,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     razorpayTestEnabled,
     razorpayTestUrl,
     razorpayTestApiKey,
+    razorpayLiveEnabled,
+    razorpayLiveUrl,
+    razorpayLiveApiKey,
     trustProxyHeaders: parseBoolean('TRUST_PROXY_HEADERS', env.TRUST_PROXY_HEADERS, false),
     creationRateLimit: parsePositiveInt('PAYMENT_CREATE_LIMIT', env.PAYMENT_CREATE_LIMIT, 5),
     creationWindowMs: parseWindowMs('PAYMENT_CREATE_WINDOW_SECONDS', env.PAYMENT_CREATE_WINDOW_SECONDS, 300),

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PublicPayment } from '../shared/payment.js';
+import type { RazorpayLiveConfig, RazorpayLiveMethods, RazorpayLiveOrder } from '../shared/razorpay-live.js';
 import type { RazorpayTestConfig, RazorpayTestMethods, RazorpayTestOrder } from '../shared/razorpay.js';
 import { createApiApp } from './app.js';
 import type { ServerConfig } from './config.js';
@@ -49,9 +50,32 @@ const razorpayOrder: RazorpayTestOrder = {
   displayName: 'IEEE Sahrdaya Razorpay Test',
 };
 
+const razorpayLiveConfig: RazorpayLiveConfig = {
+  enabled: true,
+  keyId: 'rzp_live_public123',
+  displayName: 'IEEE Sahrdaya Razorpay Live',
+  mode: 'live',
+};
+
+const razorpayLiveMethods: RazorpayLiveMethods = {
+  mode: 'live',
+  netbanking: [{ code: 'AUBL', name: 'AU Small Finance Bank' }],
+  upiIntentAvailable: true,
+  upiQrAvailable: true,
+};
+
+const razorpayLiveOrder: RazorpayLiveOrder = {
+  id: 'razorpaylive01', amountPaise: 100, currency: 'INR', status: 'created',
+  externalId: 'portal-live:request', razorpayOrderId: 'order_live123', razorpayPaymentId: '',
+  providerStatus: 'created', paymentMethod: '', amountRefunded: 0, error: '',
+  createdAt: '2026-08-03T12:00:00Z', capturedAt: '', keyId: 'rzp_live_public123',
+  displayName: 'IEEE Sahrdaya Razorpay Live',
+};
+
 const config: ServerConfig = {
   port: 3000, payGateUrl: 'https://pay.example.com', payGateApiKey: 'x'.repeat(32),
-  razorpayTestEnabled: false, razorpayTestUrl: '', razorpayTestApiKey: '', trustProxyHeaders: true,
+  razorpayTestEnabled: false, razorpayTestUrl: '', razorpayTestApiKey: '',
+  razorpayLiveEnabled: false, razorpayLiveUrl: '', razorpayLiveApiKey: '', trustProxyHeaders: true,
   creationRateLimit: 5, creationWindowMs: 300_000, globalCreationRateLimit: 60, globalCreationWindowMs: 60_000,
   statusRateLimit: 180, statusWindowMs: 60_000, globalStatusRateLimit: 1800, globalStatusWindowMs: 60_000,
 };
@@ -62,6 +86,7 @@ function makeApp({
   statusPerIpLimit = 180,
   statusGlobalLimit = 1800,
   razorpayEnabled = false,
+  razorpayLiveEnabled = false,
 } = {}) {
   const payGate = {
     createPayment: vi.fn().mockResolvedValue(payment),
@@ -78,21 +103,36 @@ function makeApp({
       headers: { 'Content-Type': 'application/json' },
     })),
   };
+  const razorpayLive = {
+    getConfig: vi.fn().mockResolvedValue(razorpayLiveConfig),
+    getMethods: vi.fn().mockResolvedValue(razorpayLiveMethods),
+    createOrder: vi.fn().mockResolvedValue(razorpayLiveOrder),
+    getOrder: vi.fn().mockResolvedValue(razorpayLiveOrder),
+    verifyOrder: vi.fn().mockResolvedValue({ ...razorpayLiveOrder, status: 'captured' as const }),
+    forwardWebhook: vi.fn().mockResolvedValue(new Response('{"processed":true}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })),
+  };
   const app = createApiApp({
     config: {
       ...config,
       razorpayTestEnabled: razorpayEnabled,
       razorpayTestUrl: razorpayEnabled ? 'http://razorpay-test.internal' : '',
       razorpayTestApiKey: razorpayEnabled ? 'r'.repeat(32) : '',
+      razorpayLiveEnabled,
+      razorpayLiveUrl: razorpayLiveEnabled ? 'http://razorpay-live.internal' : '',
+      razorpayLiveApiKey: razorpayLiveEnabled ? 'l'.repeat(32) : '',
     },
     payGate,
     razorpayTest: razorpayEnabled ? razorpayTest : undefined,
+    razorpayLive: razorpayLiveEnabled ? razorpayLive : undefined,
     createPerIpLimiter: new FixedWindowLimiter(createPerIpLimit, 300_000),
     createGlobalLimiter: new FixedWindowLimiter(createGlobalLimit, 60_000),
     statusPerIpLimiter: new FixedWindowLimiter(statusPerIpLimit, 60_000),
     statusGlobalLimiter: new FixedWindowLimiter(statusGlobalLimit, 60_000),
   });
-  return { app, payGate, razorpayTest };
+  return { app, payGate, razorpayTest, razorpayLive };
 }
 
 const headers = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' };
@@ -304,6 +344,60 @@ describe('API', () => {
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).not.toContain("'unsafe-eval'");
+  });
+
+
+  it('keeps the Live pilot hidden and disabled by default', async () => {
+    const { app } = makeApp();
+    const configResponse = await app.request('/api/razorpay/live/config');
+    expect(configResponse.status).toBe(200);
+    await expect(configResponse.json()).resolves.toEqual({ enabled: false, keyId: '', displayName: '', mode: 'live' });
+    expect((await app.request('/api/razorpay/live/methods')).status).toBe(404);
+  });
+
+  it('creates only exact ₹1 Live orders', async () => {
+    const { app, razorpayLive } = makeApp({ razorpayLiveEnabled: true });
+    const ok = await app.request('/api/razorpay/live/orders', {
+      method: 'POST', headers, body: createBody('33333333-3333-4333-8333-333333333333', 1),
+    });
+    expect(ok.status).toBe(201);
+    expect(razorpayLive.createOrder).toHaveBeenCalledWith(100, '33333333-3333-4333-8333-333333333333');
+    const blocked = await app.request('/api/razorpay/live/orders', {
+      method: 'POST', headers, body: createBody('44444444-4444-4444-8444-444444444444', 2),
+    });
+    expect(blocked.status).toBe(400);
+    await expect(blocked.json()).resolves.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('verifies the Live signed callback and returns to the hidden order page', async () => {
+    const { app, razorpayLive } = makeApp({ razorpayLiveEnabled: true });
+    const body = new URLSearchParams({
+      razorpay_order_id: 'order_live123',
+      razorpay_payment_id: 'pay_live_123',
+      razorpay_signature: 'c'.repeat(64),
+    });
+    const response = await app.request('/api/razorpay/live/callback?order=razorpaylive01', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/razorpay-live/razorpaylive01?callback=verified');
+    expect(razorpayLive.verifyOrder).toHaveBeenCalledWith('razorpaylive01', {
+      razorpay_order_id: 'order_live123',
+      razorpay_payment_id: 'pay_live_123',
+      razorpay_signature: 'c'.repeat(64),
+    });
+  });
+
+
+  it('adds Razorpay CSP origins for a Live-only deployment', async () => {
+    const { app } = makeApp({ razorpayLiveEnabled: true });
+    const root = await app.request('/');
+    const csp = root.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain('https://checkout.razorpay.com');
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
 });

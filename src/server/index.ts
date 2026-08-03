@@ -7,6 +7,7 @@ import { createApiApp } from './app.js';
 import { loadConfig } from './config.js';
 import { PayGateClient } from './paygate.js';
 import { FixedWindowLimiter } from './rate-limit.js';
+import { RazorpayLiveClient } from './razorpay-live.js';
 import { RazorpayTestClient } from './razorpay-test.js';
 
 const config = loadConfig();
@@ -14,10 +15,14 @@ const payGate = new PayGateClient(config.payGateUrl, config.payGateApiKey);
 const razorpayTest = config.razorpayTestEnabled
   ? new RazorpayTestClient(config.razorpayTestUrl, config.razorpayTestApiKey)
   : undefined;
+const razorpayLive = config.razorpayLiveEnabled
+  ? new RazorpayLiveClient(config.razorpayLiveUrl, config.razorpayLiveApiKey)
+  : undefined;
 const app = createApiApp({
   config,
   payGate,
   razorpayTest,
+  razorpayLive,
   createPerIpLimiter: new FixedWindowLimiter(config.creationRateLimit, config.creationWindowMs),
   createGlobalLimiter: new FixedWindowLimiter(config.globalCreationRateLimit, config.globalCreationWindowMs),
   statusPerIpLimiter: new FixedWindowLimiter(config.statusRateLimit, config.statusWindowMs),

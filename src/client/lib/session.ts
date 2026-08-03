@@ -4,6 +4,7 @@ const PREFIX = 'paygate:payment:';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CREATE_DRAFT_KEY = 'paygate:create-draft';
 const RAZORPAY_CREATE_DRAFT_KEY = 'paygate:razorpay-test-create-draft';
+const RAZORPAY_LIVE_CREATE_DRAFT_KEY = 'paygate:razorpay-live-create-draft';
 const CREATE_DRAFT_MAX_AGE_MS = 15 * 60 * 1000;
 
 interface StoredPaymentSession {
@@ -108,6 +109,14 @@ export function getOrCreateRequestId(amount: number): string {
 
 export function getOrCreateRazorpayRequestId(amount: number): string {
   return getOrCreateDraftRequestId(RAZORPAY_CREATE_DRAFT_KEY, amount);
+}
+
+export function getOrCreateRazorpayLiveRequestId(amount: number): string {
+  return getOrCreateDraftRequestId(RAZORPAY_LIVE_CREATE_DRAFT_KEY, amount);
+}
+
+export function clearRazorpayLiveCreateDraft(): void {
+  safeRemoveSession(RAZORPAY_LIVE_CREATE_DRAFT_KEY);
 }
 
 export function clearCreateDraft(): void {
