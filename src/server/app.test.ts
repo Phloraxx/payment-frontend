@@ -400,4 +400,15 @@ describe('API', () => {
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
+  it('marks every response as non-indexable and exposes crawler policy', async () => {
+    const { app } = makeApp();
+    const health = await app.request('/api/health');
+    expect(health.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive, nosnippet, noimageindex');
+
+    const robots = await app.request('/robots.txt');
+    expect(robots.status).toBe(200);
+    expect(robots.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive, nosnippet, noimageindex');
+    expect(await robots.text()).toBe('User-agent: *\nDisallow:\n');
+  });
+
 });
