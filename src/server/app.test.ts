@@ -408,7 +408,11 @@ describe('API', () => {
     const robots = await app.request('/robots.txt');
     expect(robots.status).toBe(200);
     expect(robots.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive, nosnippet, noimageindex');
-    expect(await robots.text()).toBe('User-agent: *\nDisallow:\n');
+    expect(await robots.text()).toContain('Content-Signal: search=no');
+
+    const sitemap = await app.request('/sitemap.xml');
+    expect(sitemap.status).toBe(404);
+    expect(sitemap.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive, nosnippet, noimageindex');
   });
 
 });
