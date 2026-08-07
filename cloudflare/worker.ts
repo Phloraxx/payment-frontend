@@ -18,6 +18,7 @@ function upstreamHeaders(request: Request): Headers {
 
 function responseHeaders(upstream: Response, path: string): Headers {
   const headers = new Headers(upstream.headers);
+  headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex');
   if (path === '/api' || path.startsWith('/api/')) {
     headers.set('Cache-Control', 'no-store');
     headers.set('CDN-Cache-Control', 'no-store');

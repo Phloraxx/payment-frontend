@@ -134,6 +134,11 @@ export function createApiApp(deps: AppDependencies): Hono {
   const app = new Hono();
   const razorpayEnabled = deps.config.razorpayTestEnabled || deps.config.razorpayLiveEnabled;
 
+  app.use('*', async (c, next) => {
+    c.header('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex');
+    await next();
+  });
+
   app.use(
     '*',
     secureHeaders({
@@ -175,6 +180,11 @@ export function createApiApp(deps: AppDependencies): Hono {
   app.use('/api/*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
     await next();
+  });
+
+  app.get('/robots.txt', (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.text('User-agent: *\nDisallow:\n');
   });
 
   // Liveness is local only. A temporary PayGate outage should not cause
