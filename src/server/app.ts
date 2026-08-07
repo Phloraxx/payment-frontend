@@ -184,7 +184,12 @@ export function createApiApp(deps: AppDependencies): Hono {
 
   app.get('/robots.txt', (c) => {
     c.header('Cache-Control', 'no-store');
-    return c.text('User-agent: *\nDisallow:\n');
+    return c.text('User-agent: *\nContent-Signal: search=no, ai-input=no, ai-train=no, use=immediate\nDisallow:\n');
+  });
+
+  app.get('/sitemap.xml', (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.text('Not Found', 404);
   });
 
   // Liveness is local only. A temporary PayGate outage should not cause
