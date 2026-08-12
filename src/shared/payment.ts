@@ -1,9 +1,25 @@
 export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'cancelled', 'late'] as const;
 
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+export const PAYMENT_ACCOUNTS = ['kotak', 'slice'] as const;
+export type PaymentAccountId = (typeof PAYMENT_ACCOUNTS)[number];
+
+export interface PaymentAccountOption {
+  id: PaymentAccountId;
+  label: string;
+  verification: 'sms' | 'email';
+}
+
+export interface PaymentAccountsResponse {
+  default: PaymentAccountId;
+  accounts: PaymentAccountOption[];
+}
 
 export interface PublicPayment {
   id: string;
+  paymentAccount: PaymentAccountId;
+  paymentAccountLabel?: string;
+  verificationMethod?: 'sms' | 'email';
   requestedAmount: number;
   requestedAmountPaise: number;
   payableAmount: string;
@@ -17,6 +33,7 @@ export interface PublicPayment {
 export interface CreatePaymentRequest {
   amount: number;
   requestId: string;
+  paymentAccount: PaymentAccountId;
 }
 
 export interface ApiErrorBody {
@@ -26,6 +43,22 @@ export interface ApiErrorBody {
 
 export function isPaymentStatus(value: unknown): value is PaymentStatus {
   return typeof value === 'string' && (PAYMENT_STATUSES as readonly string[]).includes(value);
+}
+
+export function isPaymentAccount(value: unknown): value is PaymentAccountId {
+  return typeof value === 'string' && (PAYMENT_ACCOUNTS as readonly string[]).includes(value);
+}
+
+export function isPaymentAccountsResponse(value: unknown): value is PaymentAccountsResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  if (!isPaymentAccount(item.default) || !Array.isArray(item.accounts) || item.accounts.length < 1 || item.accounts.length > 2) return false;
+  return item.accounts.every((account) => {
+    if (!account || typeof account !== 'object' || Array.isArray(account)) return false;
+    const option = account as Record<string, unknown>;
+    return isPaymentAccount(option.id) && typeof option.label === 'string' && option.label.length > 0 && option.label.length <= 40 &&
+      (option.verification === 'sms' || option.verification === 'email');
+  }) && item.accounts.some((account) => (account as PaymentAccountOption).id === item.default);
 }
 
 function parseFormattedPaise(value: string): number | undefined {
@@ -45,6 +78,7 @@ export function isPublicPayment(value: unknown): value is PublicPayment {
   if (
     typeof item.id !== 'string' ||
     !/^[a-z0-9_-]{8,64}$/i.test(item.id) ||
+    !isPaymentAccount(item.paymentAccount) ||
     typeof item.requestedAmount !== 'number' ||
     !Number.isSafeInteger(item.requestedAmount) ||
     item.requestedAmount <= 0 ||
@@ -62,6 +96,8 @@ export function isPublicPayment(value: unknown): value is PublicPayment {
     typeof item.expiresAt !== 'string' ||
     !Number.isFinite(Date.parse(item.expiresAt)) ||
     !(item.paidAt === null || (typeof item.paidAt === 'string' && Number.isFinite(Date.parse(item.paidAt)))) ||
+    !(item.paymentAccountLabel === undefined || (typeof item.paymentAccountLabel === 'string' && item.paymentAccountLabel.length <= 40)) ||
+    !(item.verificationMethod === undefined || item.verificationMethod === 'sms' || item.verificationMethod === 'email') ||
     !(item.upiUri === undefined || (typeof item.upiUri === 'string' && item.upiUri.length <= 4096 && item.upiUri.startsWith('upi://pay?')))
   ) {
     return false;

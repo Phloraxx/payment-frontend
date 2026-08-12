@@ -1,4 +1,4 @@
-import type { ApiErrorBody, CreatePaymentRequest, PublicPayment } from '../../shared/payment.js';
+import type { ApiErrorBody, CreatePaymentRequest, PaymentAccountsResponse, PublicPayment } from '../../shared/payment.js';
 import {
   isRazorpayLiveConfig,
   isRazorpayLiveMethods,
@@ -9,7 +9,7 @@ import {
   type RazorpayLiveOrder,
   type VerifyRazorpayLiveRequest,
 } from '../../shared/razorpay-live.js';
-import { isPublicPayment } from '../../shared/payment.js';
+import { isPaymentAccountsResponse, isPublicPayment } from '../../shared/payment.js';
 import {
   isRazorpayTestConfig,
   isRazorpayTestMethods,
@@ -74,6 +74,23 @@ export function createPayment(input: CreatePaymentRequest): Promise<PublicPaymen
 
 export function getPayment(id: string, signal?: AbortSignal): Promise<PublicPayment> {
   return requestPayment(`/api/payments/${encodeURIComponent(id)}`, { signal });
+}
+
+export async function getPaymentAccounts(): Promise<PaymentAccountsResponse> {
+  const response = await fetch('/api/payment-accounts', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+  const body = await readJson(response);
+  if (!response.ok) {
+    const error = body as Partial<ApiErrorBody>;
+    throw new ClientApiError(
+      typeof error.code === 'string' ? error.code : 'REQUEST_FAILED',
+      typeof error.message === 'string' ? error.message : 'Payment accounts are unavailable.',
+      response.status,
+    );
+  }
+  if (!isPaymentAccountsResponse(body)) {
+    throw new ClientApiError('INVALID_SERVER_RESPONSE', 'The server returned invalid payment accounts.', 502);
+  }
+  return body;
 }
 
 

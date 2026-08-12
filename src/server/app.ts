@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { isIP } from 'node:net';
 
-import type { CreatePaymentRequest } from '../shared/payment.js';
+import { isPaymentAccount, type PaymentAccountId } from '../shared/payment.js';
 import type { VerifyRazorpayTestRequest } from '../shared/razorpay.js';
 import type { ServerConfig } from './config.js';
 import { PayGateClient, PayGateError } from './paygate.js';
@@ -20,7 +20,7 @@ const HEX_SIGNATURE_RE = /^[a-f0-9]{64}$/i;
 
 export interface AppDependencies {
   config: ServerConfig;
-  payGate: Pick<PayGateClient, 'createPayment' | 'getPayment'>;
+  payGate: Pick<PayGateClient, 'createPayment' | 'getPayment' | 'getPaymentAccounts'>;
   razorpayTest?: Pick<RazorpayTestClient, 'getConfig' | 'getMethods' | 'createOrder' | 'getOrder' | 'verifyOrder' | 'forwardWebhook'>;
   razorpayLive?: Pick<RazorpayLiveClient, 'getConfig' | 'getMethods' | 'createOrder' | 'getOrder' | 'verifyOrder' | 'forwardWebhook'>;
   createPerIpLimiter: FixedWindowLimiter;
@@ -69,23 +69,28 @@ function takeScopedQuota(
   return null;
 }
 
-function parseCreateBody(value: unknown): CreatePaymentRequest | null {
+function parseCreateBody(value: unknown, requirePaymentAccount = false): { amount: number; requestId: string; paymentAccount?: PaymentAccountId } | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
   const keys = Object.keys(item);
   if (
-    keys.length !== 2 ||
+    (requirePaymentAccount ? keys.length !== 3 : (keys.length !== 2 && keys.length !== 3)) ||
     !keys.includes('amount') ||
     !keys.includes('requestId') ||
     typeof item.amount !== 'number' ||
     !Number.isSafeInteger(item.amount) ||
     item.amount <= 0 ||
     typeof item.requestId !== 'string' ||
-    !REQUEST_ID_RE.test(item.requestId)
+    !REQUEST_ID_RE.test(item.requestId) ||
+    (requirePaymentAccount && (!keys.includes('paymentAccount') || !isPaymentAccount(item.paymentAccount)))
   ) {
     return null;
   }
-  return { amount: item.amount, requestId: item.requestId };
+  return {
+    amount: item.amount,
+    requestId: item.requestId,
+    paymentAccount: isPaymentAccount(item.paymentAccount) ? item.paymentAccount : undefined,
+  };
 }
 
 function parseRazorpayVerifyBody(value: unknown): VerifyRazorpayTestRequest | null {
@@ -196,6 +201,17 @@ export function createApiApp(deps: AppDependencies): Hono {
   // Dokploy/Docker to restart an otherwise healthy frontend container.
   app.get('/api/health', (c) => c.json({ status: 'ok' }));
 
+  app.get('/api/payment-accounts', async (c) => {
+    try {
+      return c.json(await deps.payGate.getPaymentAccounts());
+    } catch (error) {
+      if (error instanceof PayGateError) {
+        return c.json(errorBody(error.code, error.message), clientErrorStatus(error.status));
+      }
+      throw error;
+    }
+  });
+
   app.post(
     '/api/payments',
     bodyLimit({
@@ -213,7 +229,7 @@ export function createApiApp(deps: AppDependencies): Hono {
       } catch {
         return c.json(errorBody('INVALID_JSON', 'Request body must be valid JSON.'), 400);
       }
-      const body = parseCreateBody(raw);
+      const body = parseCreateBody(raw, true);
       if (!body) {
         return c.json(
           errorBody('INVALID_REQUEST', 'Amount must be a positive whole number of rupees and requestId must be a UUID.'),
@@ -229,7 +245,7 @@ export function createApiApp(deps: AppDependencies): Hono {
       }
 
       try {
-        const payment = await deps.payGate.createPayment(body.amount, body.requestId);
+        const payment = await deps.payGate.createPayment(body.amount, body.requestId, body.paymentAccount!);
         return c.json(payment, 201);
       } catch (error) {
         if (error instanceof PayGateError) {

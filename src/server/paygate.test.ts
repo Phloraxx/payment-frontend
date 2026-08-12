@@ -3,6 +3,7 @@ import { PayGateClient } from './paygate.js';
 
 const payment = {
   id: 'abcdefghijklmno',
+  paymentAccount: 'kotak',
   requestedAmount: 100,
   requestedAmountPaise: 10000,
   payableAmount: '100.37',
@@ -14,22 +15,39 @@ const payment = {
 };
 
 describe('PayGateClient', () => {
+  it('loads enabled account choices through the server credential boundary', async () => {
+    const accounts = {
+      default: 'kotak',
+      accounts: [
+        { id: 'kotak', label: 'Kotak', verification: 'sms' },
+        { id: 'slice', label: 'Slice', verification: 'email' },
+      ],
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(accounts)));
+    const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
+    await expect(client.getPaymentAccounts()).resolves.toEqual(accounts);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://pay.example.com/api/payment-accounts');
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-api-key-value-long-enough');
+  });
+
   it('sends server credentials and idempotency key only from the backend', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(payment), { status: 201 }));
     const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
-    const result = await client.createPayment(100, '11111111-1111-4111-8111-111111111111');
+    const result = await client.createPayment(100, '11111111-1111-4111-8111-111111111111', 'slice');
     expect(result.id).toBe(payment.id);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://pay.example.com/api/payments');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-api-key-value-long-enough');
     expect(new Headers(init?.headers).get('idempotency-key')).toBe('11111111-1111-4111-8111-111111111111');
+    expect(JSON.parse(String(init?.body))).toEqual({ amount: 100, paymentAccount: 'slice' });
   });
 
   it('requires the authoritative UPI URI on creation but not on public status', async () => {
     const withoutUri = { ...payment, upiUri: undefined };
     const createFetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(withoutUri), { status: 201 }));
     const createClient = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', createFetch);
-    await expect(createClient.createPayment(100, '11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({
+    await expect(createClient.createPayment(100, '11111111-1111-4111-8111-111111111111', 'kotak')).rejects.toMatchObject({
       code: 'INVALID_UPSTREAM_RESPONSE',
       status: 502,
     });
@@ -64,7 +82,7 @@ describe('PayGateClient', () => {
       new Response(JSON.stringify({ code: 'CAPACITY_EXHAUSTED', message: 'No capacity\ninternal detail' }), { status: 409 }),
     );
     const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
-    await expect(client.createPayment(100, '11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({
+    await expect(client.createPayment(100, '11111111-1111-4111-8111-111111111111', 'kotak')).rejects.toMatchObject({
       code: 'CAPACITY_EXHAUSTED',
       status: 409,
       message: 'No capacity internal detail',
@@ -76,7 +94,7 @@ describe('PayGateClient', () => {
       new Response(JSON.stringify({ code: 'UNAUTHORIZED', message: 'invalid bearer token api-secret-detail' }), { status: 401 }),
     );
     const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
-    await expect(client.createPayment(100, '11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({
+    await expect(client.createPayment(100, '11111111-1111-4111-8111-111111111111', 'kotak')).rejects.toMatchObject({
       code: 'PAYGATE_UNAVAILABLE',
       status: 502,
       message: 'Payment service is temporarily unavailable.',

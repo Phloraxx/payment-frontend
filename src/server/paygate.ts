@@ -1,4 +1,10 @@
-import { isPublicPayment, type PublicPayment } from '../shared/payment.js';
+import {
+  isPaymentAccountsResponse,
+  isPublicPayment,
+  type PaymentAccountId,
+  type PaymentAccountsResponse,
+  type PublicPayment,
+} from '../shared/payment.js';
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_ERROR_MESSAGE_LENGTH = 240;
@@ -49,7 +55,7 @@ export class PayGateClient {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  async createPayment(amount: number, idempotencyKey: string): Promise<PublicPayment> {
+  async createPayment(amount: number, idempotencyKey: string, paymentAccount: PaymentAccountId): Promise<PublicPayment> {
     const response = await this.request('/api/payments', {
       method: 'POST',
       headers: {
@@ -57,13 +63,30 @@ export class PayGateClient {
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, paymentAccount }),
     });
     const payment = await readPaymentResponse(response);
     if (!payment.upiUri) {
       throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate did not provide a UPI URI for the new payment.');
     }
     return payment;
+  }
+
+  async getPaymentAccounts(): Promise<PaymentAccountsResponse> {
+    const response = await this.request('/api/payment-accounts', {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${this.apiKey}` },
+    });
+    let value: unknown;
+    try {
+      value = await response.json();
+    } catch {
+      throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate returned invalid payment accounts.');
+    }
+    if (!isPaymentAccountsResponse(value)) {
+      throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate returned invalid payment accounts.');
+    }
+    return value;
   }
 
   async getPayment(id: string): Promise<PublicPayment> {

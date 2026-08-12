@@ -20,6 +20,7 @@ class MemoryStorage {
 
 const payment = {
   id: 'abcdefghijklmno',
+  paymentAccount: 'kotak' as const,
   requestedAmount: 100,
   requestedAmountPaise: 10000,
   payableAmount: '100.37',
@@ -43,15 +44,15 @@ describe('client session resilience', () => {
   });
 
   it('reuses an idempotency UUID for the same amount until creation succeeds', () => {
-    const first = getOrCreateRequestId(100);
-    const retry = getOrCreateRequestId(100);
+    const first = getOrCreateRequestId(100, 'kotak');
+    const retry = getOrCreateRequestId(100, 'kotak');
     expect(retry).toBe(first);
 
-    const differentAmount = getOrCreateRequestId(101);
+    const differentAmount = getOrCreateRequestId(101, 'kotak');
     expect(differentAmount).not.toBe(first);
 
     clearCreateDraft();
-    expect(getOrCreateRequestId(101)).not.toBe(differentAmount);
+    expect(getOrCreateRequestId(101, 'kotak')).not.toBe(differentAmount);
   });
 
   it('stores only validated pending payment session data', () => {
@@ -78,11 +79,11 @@ describe('client session resilience', () => {
     });
     expect(() => savePaymentSession(payment)).not.toThrow();
     expect(loadPaymentSession(payment.id)).toBeUndefined();
-    expect(() => getOrCreateRequestId(100)).not.toThrow();
+    expect(() => getOrCreateRequestId(100, 'kotak')).not.toThrow();
   });
 
   it('keeps Razorpay Test idempotency separate from direct UPI', () => {
-    const upi = getOrCreateRequestId(100);
+    const upi = getOrCreateRequestId(100, 'kotak');
     const razorpay = getOrCreateRazorpayRequestId(100);
     expect(razorpay).not.toBe(upi);
     expect(getOrCreateRazorpayRequestId(100)).toBe(razorpay);

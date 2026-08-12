@@ -7,7 +7,7 @@ import type { ServerConfig } from './config.js';
 import { FixedWindowLimiter } from './rate-limit.js';
 
 const payment: PublicPayment = {
-  id: 'abcdefghijklmno', requestedAmount: 100, requestedAmountPaise: 10000,
+  id: 'abcdefghijklmno', paymentAccount: 'kotak', requestedAmount: 100, requestedAmountPaise: 10000,
   payableAmount: '100.37', payableAmountPaise: 10037, status: 'pending',
   expiresAt: '2026-07-26T17:30:00Z', paidAt: null,
   upiUri: 'upi://pay?pa=test%40bank&am=100.37',
@@ -91,6 +91,13 @@ function makeApp({
   const payGate = {
     createPayment: vi.fn().mockResolvedValue(payment),
     getPayment: vi.fn().mockResolvedValue(payment),
+    getPaymentAccounts: vi.fn().mockResolvedValue({
+      default: 'kotak' as const,
+      accounts: [
+        { id: 'kotak' as const, label: 'Kotak', verification: 'sms' as const },
+        { id: 'slice' as const, label: 'Slice', verification: 'email' as const },
+      ],
+    }),
   };
   const razorpayTest = {
     getConfig: vi.fn().mockResolvedValue(razorpayConfig),
@@ -136,16 +143,32 @@ function makeApp({
 }
 
 const headers = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' };
-const createBody = (requestId: string, amount = 100) => JSON.stringify({ amount, requestId });
+const createBody = (requestId: string, amount = 100) => JSON.stringify({ amount, requestId, paymentAccount: 'kotak' });
 
 describe('API', () => {
+  it('exposes only the enabled bank choices, without UPI IDs', async () => {
+    const { app, payGate } = makeApp();
+    const response = await app.request('/api/payment-accounts');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      default: 'kotak',
+      accounts: [
+        { id: 'kotak', label: 'Kotak', verification: 'sms' },
+        { id: 'slice', label: 'Slice', verification: 'email' },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain('@');
+    expect(payGate.getPaymentAccounts).toHaveBeenCalledOnce();
+  });
+
   it('creates only whole-rupee payments with a UUID', async () => {
     const { app, payGate } = makeApp();
     const response = await app.request('/api/payments', {
       method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111'),
     });
     expect(response.status).toBe(201);
-    expect(payGate.createPayment).toHaveBeenCalledWith(100, '11111111-1111-4111-8111-111111111111');
+    expect(payGate.createPayment).toHaveBeenCalledWith(100, '11111111-1111-4111-8111-111111111111', 'kotak');
     expect((await app.request('/api/payments', {
       method: 'POST', headers, body: createBody('11111111-1111-4111-8111-111111111111', 100.01),
     })).status).toBe(400);

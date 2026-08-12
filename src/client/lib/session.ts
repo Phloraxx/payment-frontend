@@ -1,4 +1,4 @@
-import { isPublicPayment, type PublicPayment } from '../../shared/payment.js';
+import { isPublicPayment, type PaymentAccountId, type PublicPayment } from '../../shared/payment.js';
 
 const PREFIX = 'paygate:payment:';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -15,6 +15,7 @@ interface StoredPaymentSession {
 interface StoredCreateDraft {
   savedAt: number;
   amount: number;
+  paymentAccount?: PaymentAccountId;
   requestId: string;
 }
 
@@ -71,12 +72,12 @@ export function clearPaymentSession(id: string): void {
   safeRemove(key(id));
 }
 
-function getOrCreateDraftRequestId(storageKey: string, amount: number): string {
+function getOrCreateDraftRequestId(storageKey: string, amount: number, paymentAccount?: PaymentAccountId): string {
   const fresh = () => {
     const requestId = crypto.randomUUID();
     if (typeof sessionStorage !== 'undefined') {
       try {
-        const draft: StoredCreateDraft = { savedAt: Date.now(), amount, requestId };
+        const draft: StoredCreateDraft = { savedAt: Date.now(), amount, paymentAccount, requestId };
         sessionStorage.setItem(storageKey, JSON.stringify(draft));
       } catch {
         // The in-flight request still has a valid UUID even if persistence is unavailable.
@@ -93,6 +94,7 @@ function getOrCreateDraftRequestId(storageKey: string, amount: number): string {
     const valid =
       draft &&
       draft.amount === amount &&
+      draft.paymentAccount === paymentAccount &&
       typeof draft.savedAt === 'number' &&
       Date.now() - draft.savedAt <= CREATE_DRAFT_MAX_AGE_MS &&
       typeof draft.requestId === 'string' &&
@@ -103,8 +105,8 @@ function getOrCreateDraftRequestId(storageKey: string, amount: number): string {
   }
 }
 
-export function getOrCreateRequestId(amount: number): string {
-  return getOrCreateDraftRequestId(CREATE_DRAFT_KEY, amount);
+export function getOrCreateRequestId(amount: number, paymentAccount: PaymentAccountId): string {
+  return getOrCreateDraftRequestId(CREATE_DRAFT_KEY, amount, paymentAccount);
 }
 
 export function getOrCreateRazorpayRequestId(amount: number): string {

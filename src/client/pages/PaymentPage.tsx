@@ -80,6 +80,8 @@ function PendingPayment({
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
+  const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'slice' ? 'Slice' : 'Kotak');
+  const verificationChannel = payment.paymentAccount === 'slice' ? 'bank email' : 'bank SMS';
 
   useEffect(() => {
     if (!personalUpiUri) return;
@@ -166,7 +168,7 @@ function PendingPayment({
       <div className="relative z-10">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Payment session</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{accountLabel} payment session</p>
             <h2 className="mt-2 text-2xl font-bold tracking-[-0.035em] text-slate-950">
               {locallyExpired ? 'Payment window ended' : 'Pay exactly'}
             </h2>
@@ -202,7 +204,7 @@ function PendingPayment({
               <div role="status" className="mt-5 rounded-3xl border border-sky-200 bg-sky-50 p-5 text-center">
                 <CircleNotch className="mx-auto h-8 w-8 animate-spin text-sky-700" />
                 <p className="mt-3 font-semibold text-sky-950">Payment sent — checking your bank confirmation</p>
-                <p className="mt-1 text-sm leading-relaxed text-sky-700">Keep this page open. PayGate will update automatically after the bank SMS is verified.</p>
+                <p className="mt-1 text-sm leading-relaxed text-sky-700">Keep this page open. PayGate will update automatically after the {verificationChannel} is verified.</p>
                 <button onClick={() => void onRefresh()} disabled={refreshing} className="mt-3 text-sm font-semibold text-sky-800 underline underline-offset-2 disabled:opacity-60">
                   {refreshing ? 'Checking…' : 'Check status now'}
                 </button>

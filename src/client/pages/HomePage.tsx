@@ -2,8 +2,9 @@ import { ArrowRight, CircleNotch, CreditCard, CurrencyInr, QrCode } from '@phosp
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 
+import type { PaymentAccountId, PaymentAccountOption } from '../../shared/payment.js';
 import { PageShell } from '../components/PageShell';
-import { ClientApiError, createPayment, createRazorpayTestOrder, getRazorpayTestConfig } from '../lib/api.js';
+import { ClientApiError, createPayment, createRazorpayTestOrder, getPaymentAccounts, getRazorpayTestConfig } from '../lib/api.js';
 import {
   clearCreateDraft,
   clearRazorpayCreateDraft,
@@ -17,6 +18,10 @@ export function HomePage() {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [method, setMethod] = useState<'upi' | 'razorpay-test'>('upi');
+  const [paymentAccount, setPaymentAccount] = useState<PaymentAccountId>('kotak');
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([
+    { id: 'kotak', label: 'Kotak', verification: 'sms' },
+  ]);
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -25,6 +30,15 @@ export function HomePage() {
     void getRazorpayTestConfig()
       .then((config) => { if (active) setRazorpayEnabled(config.enabled); })
       .catch(() => { if (active) setRazorpayEnabled(false); });
+    void getPaymentAccounts()
+      .then((config) => {
+        if (!active) return;
+        setPaymentAccounts(config.accounts);
+        setPaymentAccount(config.default);
+      })
+      .catch(() => {
+        if (active) setPaymentAccounts([{ id: 'kotak', label: 'Kotak', verification: 'sms' }]);
+      });
     return () => { active = false; };
   }, []);
 
@@ -48,8 +62,8 @@ export function HomePage() {
       } else {
         // Reuse this idempotency key after a lost response so retrying cannot
         // reserve a second DDM amount for the same checkout attempt.
-        const requestId = getOrCreateRequestId(rupees);
-        const payment = await createPayment({ amount: rupees, requestId });
+        const requestId = getOrCreateRequestId(rupees, paymentAccount);
+        const payment = await createPayment({ amount: rupees, requestId, paymentAccount });
         savePaymentSession(payment);
         clearCreateDraft();
         navigate(`/pay/${payment.id}`);
@@ -100,6 +114,25 @@ export function HomePage() {
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-800">
             <strong>Test Mode:</strong> Razorpay will simulate the payment. No real money is charged or settled.
           </div>
+        )}
+
+        {method === 'upi' && paymentAccounts.length > 1 && (
+          <fieldset className="mt-5">
+            <legend className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Receive in</legend>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              {paymentAccounts.map((account) => (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => { setPaymentAccount(account.id); setError(undefined); }}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${paymentAccount === account.id ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                >
+                  <strong className="block text-sm text-slate-900">{account.label}</strong>
+                  <span className="mt-1 block text-xs text-slate-500">Verified by {account.verification === 'email' ? 'bank email' : 'bank SMS'}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
         )}
 
         <form onSubmit={submit} className="mt-6 space-y-5">

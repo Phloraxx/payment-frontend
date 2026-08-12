@@ -4,6 +4,7 @@ import { isPublicPayment } from './payment.js';
 
 const payment = {
   id: 'abcdefghijklmno',
+  paymentAccount: 'kotak',
   requestedAmount: 100,
   requestedAmountPaise: 10000,
   payableAmount: '100.37',
