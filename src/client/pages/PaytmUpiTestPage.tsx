@@ -1,6 +1,6 @@
-import { ArrowRight, CurrencyInr, QrCode } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
+import { CurrencyInr, DownloadSimple, QrCode } from '@phosphor-icons/react';
+import { useMemo, useRef, useState } from 'react';
+import { QRCodeCanvas, QRCodeSVG } from 'qrcode.react';
 
 import { PageShell } from '../components/PageShell';
 
@@ -16,6 +16,7 @@ function validPilotAmount(value: string): boolean {
 export function PaytmUpiTestPage() {
   const [amount, setAmount] = useState('1.01');
   const [error, setError] = useState<string>();
+  const downloadCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const upiUri = useMemo(() => {
     if (!validPilotAmount(amount)) return '';
@@ -32,13 +33,22 @@ export function PaytmUpiTestPage() {
     setError(validPilotAmount(nextAmount) ? undefined : 'Use an exact amount from ₹1.00 to ₹10.00 with two decimal places.');
   };
 
+  const downloadQr = () => {
+    const canvas = downloadCanvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = `paytm-upi-${amount.replace('.', '-')}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
   return (
     <PageShell>
       <div className="relative z-10">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">Hidden pilot</p>
-        <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-950">Paytm Business UPI intent test</h2>
+        <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-950">Paytm Business QR test</h2>
         <p className="mt-3 text-sm leading-relaxed text-slate-500">
-          This tests the Paytm Business VPA with only the payee, amount and currency in the UPI payload. It does not mark a payment as successful on its own.
+          UPI intent is disabled for this test. Save the QR, then scan it from your UPI app's gallery.
         </p>
 
         <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -86,23 +96,32 @@ export function PaytmUpiTestPage() {
         {upiUri && (
           <>
             <div className="mt-6 flex justify-center rounded-3xl border border-slate-200 bg-white p-5">
-              <QRCodeSVG value={upiUri} size={220} level="M" marginSize={1} />
+              <QRCodeSVG value={upiUri} size={220} level="M" marginSize={2} />
             </div>
 
-            <a
-              href={upiUri}
+            <div className="hidden" aria-hidden="true">
+              <QRCodeCanvas ref={downloadCanvasRef} value={upiUri} size={1024} level="M" marginSize={4} />
+            </div>
+
+            <button
+              type="button"
+              onClick={downloadQr}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 font-semibold text-white transition hover:bg-slate-800"
             >
-              <ArrowRight className="h-5 w-5" />
-              Open UPI app · ₹{amount}
-            </a>
+              <DownloadSimple className="h-5 w-5" />
+              Download QR · ₹{amount}
+            </button>
 
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-              <strong>Real-money pilot:</strong> verify the payee shown in your UPI app before approving. Start with ₹1.01. A browser return is not treated as proof of payment.
+            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-900">
+              <strong>On the same phone:</strong> download the QR (or take a screenshot), open Google Pay / PhonePe / Paytm, choose Scan QR, then select the image from Gallery/Photos.
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
+              <strong>Real-money pilot:</strong> verify the payee and exact amount before approving. Start with ₹1.01.
             </div>
 
             <details className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
-              <summary className="cursor-pointer font-semibold text-slate-700">Show generated UPI URI</summary>
+              <summary className="cursor-pointer font-semibold text-slate-700">Show QR payload</summary>
               <p className="mt-3 break-all font-mono leading-relaxed">{upiUri}</p>
             </details>
           </>
@@ -110,7 +129,7 @@ export function PaytmUpiTestPage() {
 
         <div className="mt-5 flex items-start gap-3 text-xs leading-relaxed text-slate-400">
           <QrCode className="mt-0.5 h-5 w-5 shrink-0" />
-          <p>The QR and button contain only pa, am and cu. No note, Paytm gateway order, callback or signature is involved.</p>
+          <p>The QR contains only pa, am and cu. There is no tn, gateway order, callback or signature.</p>
         </div>
       </div>
     </PageShell>
