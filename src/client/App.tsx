@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { HomePage } from './pages/HomePage';
 import { PaymentPage } from './pages/PaymentPage';
+import { PaytmUpiTestPage } from './pages/PaytmUpiTestPage';
 import { RazorpayLivePage } from './pages/RazorpayLivePage';
 import { RazorpayLivePilotPage } from './pages/RazorpayLivePilotPage';
 import { RazorpayTestPage } from './pages/RazorpayTestPage';
@@ -12,6 +13,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/pay/:id" element={<PaymentPage />} />
+        <Route path="/paytm-upi-test" element={<PaytmUpiTestPage />} />
         <Route path="/razorpay-test/:id" element={<RazorpayTestPage />} />
         <Route path="/razorpay-live" element={<RazorpayLivePilotPage />} />
         <Route path="/razorpay-live/:id" element={<RazorpayLivePage />} />
