@@ -80,11 +80,13 @@ function PendingPayment({
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
-  const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'slice' ? 'Slice' : 'Kotak');
-  const verificationChannel = payment.paymentAccount === 'slice' ? 'bank email' : 'bank SMS';
+  const isMerchantQr = payment.paymentFlow === 'merchant_qr' || payment.paymentAccount === 'paytm';
+  const qrValue = isMerchantQr ? (payment.qrPayload ?? null) : personalUpiUri;
+  const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'paytm' ? 'Paytm' : payment.paymentAccount === 'slice' ? 'Slice' : 'Kotak');
+  const verificationChannel = payment.paymentAccount === 'paytm' ? 'Paytm payment notification' : payment.paymentAccount === 'slice' ? 'bank email' : 'bank SMS';
 
   useEffect(() => {
-    if (!personalUpiUri) return;
+    if (!qrValue) return;
     const frame = window.requestAnimationFrame(() => {
       const canvas = qrCanvasContainer.current?.querySelector('canvas');
       setQrImageUrl(canvas?.toDataURL('image/png') ?? null);
@@ -93,7 +95,7 @@ function PendingPayment({
       }, 'image/png');
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [personalUpiUri]);
+  }, [qrValue]);
 
   const copyAmount = async () => {
     try {
@@ -203,7 +205,7 @@ function PendingPayment({
             {paymentClaimed && (
               <div role="status" className="mt-5 rounded-3xl border border-sky-200 bg-sky-50 p-5 text-center">
                 <CircleNotch className="mx-auto h-8 w-8 animate-spin text-sky-700" />
-                <p className="mt-3 font-semibold text-sky-950">Payment sent — checking your bank confirmation</p>
+                <p className="mt-3 font-semibold text-sky-950">Payment sent — checking payment confirmation</p>
                 <p className="mt-1 text-sm leading-relaxed text-sky-700">Keep this page open. PayGate will update automatically after the {verificationChannel} is verified.</p>
                 <button onClick={() => void onRefresh()} disabled={refreshing} className="mt-3 text-sm font-semibold text-sky-800 underline underline-offset-2 disabled:opacity-60">
                   {refreshing ? 'Checking…' : 'Check status now'}
@@ -211,19 +213,25 @@ function PendingPayment({
               </div>
             )}
 
-            {personalUpiUri ? (
+            {qrValue ? (
               <>
                 <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true">
-                  <QRCodeCanvas value={personalUpiUri} level="M" size={768} bgColor="#ffffff" fgColor="#0f172a" />
+                  <QRCodeCanvas value={qrValue} level="M" size={768} bgColor="#ffffff" fgColor="#0f172a" />
                 </div>
 
                 <div className="mx-auto mt-7 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
                   {qrImageUrl ? (
-                    <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} className="h-full w-full select-none" />
+                    <img src={qrImageUrl} alt={`${accountLabel} payment QR for ₹${payment.payableAmount}`} className="h-full w-full select-none" />
                   ) : (
                     <CircleNotch className="h-8 w-8 animate-spin text-slate-400" />
                   )}
                 </div>
+
+                {isMerchantQr && (
+                  <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-relaxed text-sky-800">
+                    <strong className="font-semibold text-sky-950">Paytm merchant QR:</strong> the QR is fixed, so enter the exact amount shown above after scanning.
+                  </div>
+                )}
 
                 <button onClick={saveQrAndPay} disabled={!qrImageUrl} className="button-primary mt-6 disabled:cursor-not-allowed disabled:opacity-60">
                   <DownloadSimple className="h-5 w-5" />
@@ -252,7 +260,7 @@ function PendingPayment({
                 </details>
 
                 <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
-                  “I’ve completed the payment” only changes this screen to waiting mode. Bank verification is still required.
+                  “I’ve completed the payment” only changes this screen to waiting mode. PayGate verification is still required.
                 </p>
 
                 {handoffMessage && (
@@ -323,12 +331,16 @@ function PendingPayment({
               <CheckCircle weight="fill" className="h-8 w-8" />
             </div>
             <h3 className="mt-4 text-center text-2xl font-bold tracking-[-0.035em]">QR download started</h3>
-            <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">Use the newest image from Downloads or Gallery in your UPI app.</p>
+            <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">
+              {isMerchantQr
+                ? 'Open the saved Paytm merchant QR from Downloads or Gallery, then enter the exact amount.'
+                : 'Use the newest image from Downloads or Gallery in your UPI app.'}
+            </p>
 
             <ol className="mt-5 space-y-3 text-sm text-slate-700">
               <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold">1</span><span className="pt-1">Open Google Pay, PhonePe, Paytm, BHIM or your preferred UPI app.</span></li>
               <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold">2</span><span className="pt-1">Tap <strong>Scan QR</strong>, then choose <strong>Gallery</strong> or <strong>Upload QR</strong>.</span></li>
-              <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold">3</span><span className="pt-1">Select the newest PayGate image and pay exactly <strong>{formatRupeesFromPaise(payment.payableAmountPaise)}</strong>.</span></li>
+              <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold">3</span><span className="pt-1">{isMerchantQr ? <>Select the PayGate image, enter <strong>{formatRupeesFromPaise(payment.payableAmountPaise)}</strong>, and pay exactly that amount.</> : <>Select the newest PayGate image and pay exactly <strong>{formatRupeesFromPaise(payment.payableAmountPaise)}</strong>.</>}</span></li>
             </ol>
 
             <div className="mt-5 grid grid-cols-2 gap-3">
@@ -357,9 +369,9 @@ function PendingPayment({
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Screenshot this QR</p>
           <p className="mt-3 text-4xl font-bold tracking-[-0.05em]">{formatRupeesFromPaise(payment.payableAmountPaise)}</p>
           <div className="mt-6 w-full max-w-[340px] rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-            <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} className="h-auto w-full" />
+            <img src={qrImageUrl} alt={`${accountLabel} payment QR for ₹${payment.payableAmount}`} className="h-auto w-full" />
           </div>
-          <p className="mt-5 max-w-sm text-sm leading-relaxed text-slate-600">Take a screenshot, then open your UPI app → Scan QR → Gallery and choose the newest screenshot.</p>
+          <p className="mt-5 max-w-sm text-sm leading-relaxed text-slate-600">Take a screenshot, then open your UPI app → Scan QR → Gallery and choose the newest screenshot. Pay the exact amount shown above.</p>
           <p className="mt-3 font-mono text-xs text-slate-400">Exact amount: ₹{payment.payableAmount}</p>
         </div>
       )}

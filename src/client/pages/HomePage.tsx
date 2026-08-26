@@ -94,7 +94,7 @@ export function HomePage() {
           >
             <QrCode className="h-6 w-6" />
             <strong className="mt-3 block text-sm">Direct UPI</strong>
-            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified by bank SMS.</span>
+            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified automatically.</span>
           </button>
           <button
             type="button"
@@ -119,7 +119,7 @@ export function HomePage() {
         {method === 'upi' && paymentAccounts.length > 1 && (
           <fieldset className="mt-5">
             <legend className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Receive in</legend>
-            <div className="mt-2 grid grid-cols-2 gap-3">
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {paymentAccounts.map((account) => (
                 <button
                   key={account.id}
@@ -128,7 +128,7 @@ export function HomePage() {
                   className={`rounded-2xl border px-4 py-3 text-left transition ${paymentAccount === account.id ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                 >
                   <strong className="block text-sm text-slate-900">{account.label}</strong>
-                  <span className="mt-1 block text-xs text-slate-500">Verified by {account.verification === 'email' ? 'bank email' : 'bank SMS'}</span>
+                  <span className="mt-1 block text-xs text-slate-500">Verified by {verificationLabel(account.verification)}</span>
                 </button>
               ))}
             </div>
@@ -180,4 +180,11 @@ export function HomePage() {
       </div>
     </PageShell>
   );
+}
+
+
+function verificationLabel(method: PaymentAccountOption['verification']): string {
+  if (method === 'email') return 'bank email';
+  if (method === 'notification') return 'Paytm notification';
+  return 'bank SMS';
 }

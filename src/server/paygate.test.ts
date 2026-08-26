@@ -21,6 +21,7 @@ describe('PayGateClient', () => {
       accounts: [
         { id: 'kotak', label: 'Kotak', verification: 'sms' },
         { id: 'slice', label: 'Slice', verification: 'email' },
+        { id: 'paytm', label: 'Paytm', verification: 'notification' },
       ],
     };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(accounts)));
@@ -43,7 +44,7 @@ describe('PayGateClient', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ amount: 100, paymentAccount: 'slice' });
   });
 
-  it('requires the authoritative UPI URI on creation but not on public status', async () => {
+  it('requires authoritative payment instructions on creation but not on public status', async () => {
     const withoutUri = { ...payment, upiUri: undefined };
     const createFetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(withoutUri), { status: 201 }));
     const createClient = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', createFetch);
@@ -55,6 +56,25 @@ describe('PayGateClient', () => {
     const statusFetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(withoutUri), { status: 200 }));
     const statusClient = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', statusFetch);
     await expect(statusClient.getPayment(payment.id)).resolves.toMatchObject({ id: payment.id, status: 'pending' });
+  });
+
+  it('accepts a Paytm merchant QR as authoritative creation instructions', async () => {
+    const paytmPayment = {
+      ...payment,
+      paymentAccount: 'paytm',
+      paymentAccountLabel: 'Paytm',
+      verificationMethod: 'notification',
+      paymentFlow: 'merchant_qr',
+      upiUri: undefined,
+      qrPayload: 'paytm-issued-static-merchant-qr-payload',
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(paytmPayment), { status: 201 }));
+    const client = new PayGateClient('https://pay.example.com', 'secret-api-key-value-long-enough', fetchMock);
+    await expect(client.createPayment(100, '11111111-1111-4111-8111-111111111111', 'paytm')).resolves.toMatchObject({
+      paymentAccount: 'paytm',
+      paymentFlow: 'merchant_qr',
+      qrPayload: 'paytm-issued-static-merchant-qr-payload',
+    });
   });
 
   it('translates malformed successful JSON into an upstream 502', async () => {

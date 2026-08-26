@@ -42,7 +42,7 @@ function safeRemoveSession(storageKey: string): void {
 }
 
 export function savePaymentSession(payment: PublicPayment): void {
-  if (!payment.upiUri || typeof localStorage === 'undefined') return;
+  if ((!payment.upiUri && !payment.qrPayload) || typeof localStorage === 'undefined') return;
   const payload: StoredPaymentSession = { savedAt: Date.now(), payment };
   try {
     localStorage.setItem(key(payment.id), JSON.stringify(payload));

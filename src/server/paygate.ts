@@ -66,8 +66,10 @@ export class PayGateClient {
       body: JSON.stringify({ amount, paymentAccount }),
     });
     const payment = await readPaymentResponse(response);
-    if (!payment.upiUri) {
-      throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate did not provide a UPI URI for the new payment.');
+    const hasUpiIntent = payment.paymentFlow !== 'merchant_qr' && Boolean(payment.upiUri);
+    const hasMerchantQr = payment.paymentFlow === 'merchant_qr' && Boolean(payment.qrPayload);
+    if (!hasUpiIntent && !hasMerchantQr) {
+      throw new PayGateError(502, 'INVALID_UPSTREAM_RESPONSE', 'PayGate did not provide valid payment instructions for the new payment.');
     }
     return payment;
   }

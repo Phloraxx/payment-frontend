@@ -60,6 +60,21 @@ describe('client session resilience', () => {
     expect(loadPaymentSession(payment.id)).toEqual(payment);
   });
 
+  it('stores a Paytm merchant QR session so refreshes do not lose the static QR', () => {
+    const paytmPayment = {
+      ...payment,
+      id: 'paytmpayment001',
+      paymentAccount: 'paytm' as const,
+      paymentAccountLabel: 'Paytm',
+      verificationMethod: 'notification' as const,
+      paymentFlow: 'merchant_qr' as const,
+      upiUri: undefined,
+      qrPayload: 'paytm-issued-static-merchant-qr-payload',
+    };
+    savePaymentSession(paytmPayment);
+    expect(loadPaymentSession(paytmPayment.id)).toEqual(paytmPayment);
+  });
+
   it('treats storage as optional rather than breaking a successful payment', () => {
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,

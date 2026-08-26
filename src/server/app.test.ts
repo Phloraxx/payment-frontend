@@ -96,6 +96,7 @@ function makeApp({
       accounts: [
         { id: 'kotak' as const, label: 'Kotak', verification: 'sms' as const },
         { id: 'slice' as const, label: 'Slice', verification: 'email' as const },
+        { id: 'paytm' as const, label: 'Paytm', verification: 'notification' as const },
       ],
     }),
   };
@@ -156,6 +157,7 @@ describe('API', () => {
       accounts: [
         { id: 'kotak', label: 'Kotak', verification: 'sms' },
         { id: 'slice', label: 'Slice', verification: 'email' },
+        { id: 'paytm', label: 'Paytm', verification: 'notification' },
       ],
     });
     expect(JSON.stringify(body)).not.toContain('@');

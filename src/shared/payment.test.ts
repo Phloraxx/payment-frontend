@@ -21,6 +21,21 @@ describe('isPublicPayment', () => {
     expect(isPublicPayment({ ...payment, payableAmount: '999999999999.99', payableAmountPaise: 99999999999999 })).toBe(false);
   });
 
+  it('accepts a Paytm merchant-QR payment without pretending it is a UPI intent', () => {
+    const paytm = {
+      ...payment,
+      paymentAccount: 'paytm',
+      paymentAccountLabel: 'Paytm',
+      verificationMethod: 'notification',
+      paymentFlow: 'merchant_qr',
+      upiUri: undefined,
+      qrPayload: 'paytm-issued-static-merchant-qr-payload',
+    };
+    expect(isPublicPayment(paytm)).toBe(true);
+    expect(isPublicPayment({ ...paytm, qrPayload: '' })).toBe(false);
+    expect(isPublicPayment({ ...paytm, upiUri: payment.upiUri })).toBe(false);
+  });
+
   it('rejects inconsistent or unsafe UPI data', () => {
     expect(isPublicPayment({ ...payment, payableAmount: '100.38' })).toBe(false);
     expect(isPublicPayment({ ...payment, upiUri: 'javascript:alert(1)' })).toBe(false);
