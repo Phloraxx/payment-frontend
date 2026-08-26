@@ -5,7 +5,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { PageShell } from '../components/PageShell';
 
 const PAYTM_VPA = 'paytm.s3nizks@pty';
-const PAYTM_NOTE = 'Verified Merchant Account';
 const PRESETS = ['1.01', '1.02', '1.03', '1.04', '1.06'] as const;
 
 function validPilotAmount(value: string): boolean {
@@ -24,7 +23,6 @@ export function PaytmUpiTestPage() {
       pa: PAYTM_VPA,
       am: amount,
       cu: 'INR',
-      tn: PAYTM_NOTE,
     });
     return `upi://pay?${params.toString()}`;
   }, [amount]);
@@ -40,7 +38,7 @@ export function PaytmUpiTestPage() {
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">Hidden pilot</p>
         <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-950">Paytm Business UPI intent test</h2>
         <p className="mt-3 text-sm leading-relaxed text-slate-500">
-          This reproduces the Paytm Business QR payload while allowing only the amount to change. It does not mark a payment as successful on its own.
+          This tests the Paytm Business VPA with only the payee, amount and currency in the UPI payload. It does not mark a payment as successful on its own.
         </p>
 
         <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -112,7 +110,7 @@ export function PaytmUpiTestPage() {
 
         <div className="mt-5 flex items-start gap-3 text-xs leading-relaxed text-slate-400">
           <QrCode className="mt-0.5 h-5 w-5 shrink-0" />
-          <p>The QR and button contain only pa, am, cu and the same note found in the Paytm-generated QR. No Paytm gateway order, callback or signature is involved.</p>
+          <p>The QR and button contain only pa, am and cu. No note, Paytm gateway order, callback or signature is involved.</p>
         </div>
       </div>
     </PageShell>
