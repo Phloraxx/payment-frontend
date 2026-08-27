@@ -94,7 +94,7 @@ export function HomePage() {
           >
             <QrCode className="h-6 w-6" />
             <strong className="mt-3 block text-sm">Direct UPI</strong>
-            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified by bank SMS.</span>
+            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified from trusted payment evidence.</span>
           </button>
           <button
             type="button"
@@ -128,7 +128,7 @@ export function HomePage() {
                   className={`rounded-2xl border px-4 py-3 text-left transition ${paymentAccount === account.id ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                 >
                   <strong className="block text-sm text-slate-900">{account.label}</strong>
-                  <span className="mt-1 block text-xs text-slate-500">Verified by {account.verification === 'email' ? 'bank email' : 'bank SMS'}</span>
+                  <span className="mt-1 block text-xs text-slate-500">Verified by {account.verification === 'email' ? 'bank email' : account.verification === 'notification' ? 'Paytm notification' : 'bank SMS'}</span>
                 </button>
               ))}
             </div>

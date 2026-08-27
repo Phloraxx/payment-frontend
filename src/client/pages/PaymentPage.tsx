@@ -80,8 +80,8 @@ function PendingPayment({
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
-  const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'slice' ? 'Slice' : 'Kotak');
-  const verificationChannel = payment.paymentAccount === 'slice' ? 'bank email' : 'bank SMS';
+  const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'slice' ? 'Slice' : payment.paymentAccount === 'paytm' ? 'Paytm' : 'Kotak');
+  const verificationChannel = payment.paymentAccount === 'slice' ? 'bank email' : payment.paymentAccount === 'paytm' ? 'Paytm for Business notification' : 'bank SMS';
 
   useEffect(() => {
     if (!personalUpiUri) return;
@@ -203,7 +203,7 @@ function PendingPayment({
             {paymentClaimed && (
               <div role="status" className="mt-5 rounded-3xl border border-sky-200 bg-sky-50 p-5 text-center">
                 <CircleNotch className="mx-auto h-8 w-8 animate-spin text-sky-700" />
-                <p className="mt-3 font-semibold text-sky-950">Payment sent — checking your bank confirmation</p>
+                <p className="mt-3 font-semibold text-sky-950">Payment sent — checking payment confirmation</p>
                 <p className="mt-1 text-sm leading-relaxed text-sky-700">Keep this page open. PayGate will update automatically after the {verificationChannel} is verified.</p>
                 <button onClick={() => void onRefresh()} disabled={refreshing} className="mt-3 text-sm font-semibold text-sky-800 underline underline-offset-2 disabled:opacity-60">
                   {refreshing ? 'Checking…' : 'Check status now'}
@@ -252,7 +252,7 @@ function PendingPayment({
                 </details>
 
                 <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
-                  “I’ve completed the payment” only changes this screen to waiting mode. Bank verification is still required.
+                  “I’ve completed the payment” only changes this screen to waiting mode. PayGate verification is still required.
                 </p>
 
                 {handoffMessage && (
