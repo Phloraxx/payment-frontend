@@ -94,8 +94,8 @@ function makeApp({
     getPaymentAccounts: vi.fn().mockResolvedValue({
       default: 'kotak' as const,
       accounts: [
-        { id: 'kotak' as const, label: 'Kotak', verification: 'sms' as const },
-        { id: 'slice' as const, label: 'Slice', verification: 'email' as const },
+        { id: 'kotak' as const, label: 'Kotak', verification: 'sms' as const, flow: 'upi_intent' as const, ready: true },
+        { id: 'slice' as const, label: 'Slice', verification: 'email' as const, flow: 'upi_intent' as const, ready: true },
       ],
     }),
   };
@@ -154,8 +154,8 @@ describe('API', () => {
     expect(body).toEqual({
       default: 'kotak',
       accounts: [
-        { id: 'kotak', label: 'Kotak', verification: 'sms' },
-        { id: 'slice', label: 'Slice', verification: 'email' },
+        { id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true },
+        { id: 'slice', label: 'Slice', verification: 'email', flow: 'upi_intent', ready: true },
       ],
     });
     expect(JSON.stringify(body)).not.toContain('@');

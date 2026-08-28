@@ -19,8 +19,8 @@ describe('PayGateClient', () => {
     const accounts = {
       default: 'kotak',
       accounts: [
-        { id: 'kotak', label: 'Kotak', verification: 'sms' },
-        { id: 'slice', label: 'Slice', verification: 'email' },
+        { id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true },
+        { id: 'slice', label: 'Slice', verification: 'email', flow: 'upi_intent', ready: true },
       ],
     };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(accounts)));

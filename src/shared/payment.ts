@@ -10,8 +10,8 @@ export interface PaymentAccountOption {
   id: PaymentAccountId;
   label: string;
   verification: 'sms' | 'email' | 'notification';
-  flow?: PaymentAccountFlow;
-  ready?: boolean;
+  flow: PaymentAccountFlow;
+  ready: boolean;
   unavailableReason?: string;
 }
 
@@ -64,8 +64,8 @@ export function isPaymentAccountsResponse(value: unknown): value is PaymentAccou
     const option = account as Record<string, unknown>;
     return isPaymentAccount(option.id) && typeof option.label === 'string' && option.label.length > 0 && option.label.length <= 40 &&
       (option.verification === 'sms' || option.verification === 'email' || option.verification === 'notification') &&
-      (option.flow === undefined || option.flow === 'upi_intent' || option.flow === 'qr_only' || option.flow === 'merchant_qr') &&
-      (option.ready === undefined || typeof option.ready === 'boolean') &&
+      (option.flow === 'upi_intent' || option.flow === 'qr_only' || option.flow === 'merchant_qr') &&
+      typeof option.ready === 'boolean' &&
       (option.unavailableReason === undefined || (typeof option.unavailableReason === 'string' && option.unavailableReason.length <= 240));
   }) && item.accounts.some((account) => (account as PaymentAccountOption).id === item.default);
 }

@@ -81,8 +81,13 @@ function PendingPayment({
   const personalUpiUri = payment.upiUri ? toPersonalUpiUri(payment.upiUri) : null;
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
   const accountLabel = payment.paymentAccountLabel ?? (payment.paymentAccount === 'slice' ? 'Slice' : payment.paymentAccount === 'paytm' ? 'Paytm' : 'Kotak');
-  const verificationChannel = payment.paymentAccount === 'slice' ? 'bank email' : payment.paymentAccount === 'paytm' ? 'Paytm for Business notification' : 'bank SMS';
-  const qrOnly = payment.paymentFlow === 'qr_only' || payment.paymentAccount === 'paytm';
+  // New API responses carry capabilities explicitly. The account fallback is
+  // only for older locally stored sessions created before paymentFlow and
+  // verificationMethod were added to the public contract.
+  const effectiveFlow = payment.paymentFlow ?? (payment.paymentAccount === 'paytm' ? 'qr_only' : 'upi_intent');
+  const effectiveVerification = payment.verificationMethod ?? (payment.paymentAccount === 'slice' ? 'email' : payment.paymentAccount === 'paytm' ? 'notification' : 'sms');
+  const verificationChannel = effectiveVerification === 'email' ? 'bank email' : effectiveVerification === 'notification' ? 'Paytm for Business notification' : 'bank SMS';
+  const qrOnly = effectiveFlow === 'qr_only' || effectiveFlow === 'merchant_qr';
 
   useEffect(() => {
     if (!personalUpiUri) return;
@@ -327,7 +332,7 @@ function PendingPayment({
               <CheckCircle weight="fill" className="h-8 w-8" />
             </div>
             <h3 className="mt-4 text-center text-2xl font-bold tracking-[-0.035em]">QR download started</h3>
-            <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">{qrOnly ? 'This Paytm route is QR-only. Use the newest image from Downloads or Gallery in your UPI app.' : 'Use the newest image from Downloads or Gallery in your UPI app.'}</p>
+            <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">{qrOnly ? 'This payment route is QR-only. Use the newest image from Downloads or Gallery in your UPI app.' : 'Use the newest image from Downloads or Gallery in your UPI app.'}</p>
 
             <ol className="mt-5 space-y-3 text-sm text-slate-700">
               <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold">1</span><span className="pt-1">Open Google Pay, PhonePe, Paytm, BHIM or your preferred UPI app.</span></li>
