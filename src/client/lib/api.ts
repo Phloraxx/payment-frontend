@@ -31,6 +31,16 @@ export class ClientApiError extends Error {
   }
 }
 
+function checkoutBase(): string {
+  const raw = import.meta.env.VITE_PAYGATE_CHECKOUT_URL?.trim() ?? '';
+  return raw.replace(/\/+$/, '');
+}
+
+function checkoutURL(v2Path: string, legacyPath: string): string {
+  const base = checkoutBase();
+  return base ? `${base}${v2Path}` : legacyPath;
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -65,19 +75,26 @@ async function requestPayment(url: string, init?: RequestInit): Promise<PublicPa
 }
 
 export function createPayment(input: CreatePaymentRequest): Promise<PublicPayment> {
-  return requestPayment('/api/payments', {
+  const base = checkoutBase();
+  return requestPayment(base ? `${base}/api/checkout/v2/payments` : '/api/payments', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    headers: base
+      ? { 'Content-Type': 'application/json', 'Idempotency-Key': input.requestId }
+      : { 'Content-Type': 'application/json' },
+    body: JSON.stringify(base ? { amount: input.amount, paymentAccount: input.paymentAccount } : input),
   });
 }
 
 export function getPayment(id: string, signal?: AbortSignal): Promise<PublicPayment> {
-  return requestPayment(`/api/payments/${encodeURIComponent(id)}`, { signal });
+  return requestPayment(
+    checkoutURL(`/api/checkout/v2/payments/${encodeURIComponent(id)}`, `/api/payments/${encodeURIComponent(id)}`),
+    { signal },
+  );
 }
 
 export async function getPaymentAccounts(): Promise<PaymentAccountsResponse> {
-  const response = await fetch('/api/payment-accounts', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+  const response = await fetch(checkoutURL('/api/checkout/v2/payment-accounts', '/api/payment-accounts'), {
+    headers: { Accept: 'application/json' }, cache: 'no-store' });
   const body = await readJson(response);
   if (!response.ok) {
     const error = body as Partial<ApiErrorBody>;
