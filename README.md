@@ -58,8 +58,8 @@ Keep `TRUST_PROXY_HEADERS=false` unless the application is reachable only throug
 
 1. Browser sends a whole-rupee amount and a UUID idempotency key to `POST /api/payments`.
 2. Hono validates and rate-limits the request, then calls PayGate with the server-side API key.
-3. PayGate returns the exact DDM amount and authoritative UPI URI.
-4. The browser renders the QR and stores only the non-sensitive payment session data locally so a same-browser refresh can restore the QR.
+3. PayGate returns the exact DDM amount, authoritative UPI URI, account flow and current verification method. Configured-but-unready rails remain visible as unavailable choices; creation also fails closed server-side if readiness changes between page load and submit.
+4. The browser renders the QR and stores only the non-sensitive payment session data locally so a same-browser refresh can restore QR-only metadata and the QR.
 5. The browser polls `GET /api/payments/:id` every 2 seconds while visible. Status proxying has separate generous per-IP and global limits so normal polling is unaffected while arbitrary callers cannot generate unbounded PayGate traffic.
 6. PayGate public status intentionally exposes no RRN, payer UPI ID, payer name or raw SMS.
 
@@ -102,3 +102,9 @@ https://pay.ieeesahrdaya.com/api/razorpay/test/webhook
 ```
 
 `cloudflare/worker.ts` is a thin custom-domain proxy from `pay.ieeesahrdaya.com` to the maintained Oracle/Dokploy portal at `payment.mulearnscet.in`. It contains no Razorpay credentials or payment state.
+
+## Paytm QR-only readiness
+
+The Paytm account is rendered from `/api/payment-accounts` like the other direct-UPI rails, but its `ready` flag is authoritative. If the signed Android notification relay is stale/unavailable, Paytm is disabled in the picker and the backend independently rejects creation with `PAYMENT_ACCOUNT_UNAVAILABLE`. Existing Kotak/Slice options remain usable when their own evidence rails are ready.
+
+Paytm uses the same QR rendering path but is deliberately QR-only; the portal does not pretend that a browser deep-link round trip proves payment. Customer copy says confirmation is automatic without exposing internal relay-device details.

@@ -52,7 +52,13 @@ function extractClientIp(c: Parameters<typeof getConnInfo>[0], trustProxyHeaders
       if (boundaryAddress) return boundaryAddress;
     }
   }
-  return getConnInfo(c).remote.address ?? 'unknown';
+  try {
+    return getConnInfo(c).remote.address ?? 'unknown';
+  } catch {
+    // Synthetic tests and some nonstandard adapters may not expose a Node
+    // socket. Rate-limit them under one conservative fallback identity.
+    return 'unknown';
+  }
 }
 
 function takeScopedQuota(
@@ -202,6 +208,12 @@ export function createApiApp(deps: AppDependencies): Hono {
   app.get('/api/health', (c) => c.json({ status: 'ok' }));
 
   app.get('/api/payment-accounts', async (c) => {
+    const clientIp = extractClientIp(c, deps.config.trustProxyHeaders);
+    const denied = takeScopedQuota(deps.statusPerIpLimiter, deps.statusGlobalLimiter, clientIp);
+    if (denied) {
+      c.header('Retry-After', String(denied.retryAfterSeconds));
+      return c.json(errorBody('RATE_LIMITED', 'Too many availability checks. Please wait and try again.'), 429);
+    }
     try {
       return c.json(await deps.payGate.getPaymentAccounts());
     } catch (error) {

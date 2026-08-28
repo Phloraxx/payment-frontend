@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isPublicPayment } from './payment.js';
+import { isPaymentAccountsResponse, isPublicPayment } from './payment.js';
 
 const payment = {
   id: 'abcdefghijklmno',
@@ -25,5 +25,25 @@ describe('isPublicPayment', () => {
     expect(isPublicPayment({ ...payment, payableAmount: '100.38' })).toBe(false);
     expect(isPublicPayment({ ...payment, upiUri: 'javascript:alert(1)' })).toBe(false);
     expect(isPublicPayment({ ...payment, status: 'refunded' })).toBe(false);
+  });
+});
+
+
+describe('isPaymentAccountsResponse', () => {
+  it('accepts readiness and QR-only metadata from PayGate', () => {
+    expect(isPaymentAccountsResponse({
+      default: 'paytm',
+      accounts: [
+        { id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true },
+        { id: 'paytm', label: 'Paytm', verification: 'notification', flow: 'qr_only', ready: false, unavailableReason: 'Relay offline' },
+      ],
+    })).toBe(true);
+  });
+
+  it('rejects invalid readiness metadata', () => {
+    expect(isPaymentAccountsResponse({
+      default: 'paytm',
+      accounts: [{ id: 'paytm', label: 'Paytm', verification: 'notification', flow: 'unknown', ready: 'yes' }],
+    })).toBe(false);
   });
 });

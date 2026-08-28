@@ -19,9 +19,7 @@ export function HomePage() {
   const [submitting, setSubmitting] = useState(false);
   const [method, setMethod] = useState<'upi' | 'razorpay-test'>('upi');
   const [paymentAccount, setPaymentAccount] = useState<PaymentAccountId>('kotak');
-  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([
-    { id: 'kotak', label: 'Kotak', verification: 'sms' },
-  ]);
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -30,16 +28,42 @@ export function HomePage() {
     void getRazorpayTestConfig()
       .then((config) => { if (active) setRazorpayEnabled(config.enabled); })
       .catch(() => { if (active) setRazorpayEnabled(false); });
-    void getPaymentAccounts()
-      .then((config) => {
+
+    const loadAccounts = async () => {
+      try {
+        const config = await getPaymentAccounts();
         if (!active) return;
         setPaymentAccounts(config.accounts);
-        setPaymentAccount(config.default);
-      })
-      .catch(() => {
-        if (active) setPaymentAccounts([{ id: 'kotak', label: 'Kotak', verification: 'sms' }]);
-      });
-    return () => { active = false; };
+        setPaymentAccount((current) => {
+          const currentOption = config.accounts.find((account) => account.id === current && account.ready !== false);
+          if (currentOption) return current;
+          const preferred = config.accounts.find((account) => account.id === config.default && account.ready !== false)
+            ?? config.accounts.find((account) => account.ready !== false);
+          return preferred?.id ?? current;
+        });
+      } catch {
+        if (!active) return;
+        // Availability is authoritative and time-sensitive. Never invent a
+        // usable rail when PayGate cannot report readiness.
+        setPaymentAccounts((current) => current.map((account) => ({
+          ...account,
+          ready: false,
+          unavailableReason: 'Verification status is temporarily unavailable.',
+        })));
+      }
+    };
+
+    void loadAccounts();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadAccounts();
+    }, 15_000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') void loadAccounts(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const submit = async (event: React.FormEvent) => {
@@ -60,6 +84,10 @@ export function HomePage() {
         clearRazorpayCreateDraft();
         navigate(`/razorpay-test/${order.id}`);
       } else {
+        const selected = paymentAccounts.find((account) => account.id === paymentAccount);
+        if (!selected || selected.ready === false) {
+          throw new ClientApiError('PAYMENT_ACCOUNT_UNAVAILABLE', selected?.unavailableReason || 'This payment account is temporarily unavailable.', 503);
+        }
         // Reuse this idempotency key after a lost response so retrying cannot
         // reserve a second DDM amount for the same checkout attempt.
         const requestId = getOrCreateRequestId(rupees, paymentAccount);
@@ -70,10 +98,21 @@ export function HomePage() {
       }
     } catch (requestError) {
       setError(requestError instanceof ClientApiError ? requestError.message : 'Unable to create the payment right now.');
+      if (requestError instanceof ClientApiError && requestError.code === 'PAYMENT_ACCOUNT_UNAVAILABLE') {
+        void getPaymentAccounts().then((config) => {
+          setPaymentAccounts(config.accounts);
+          const next = config.accounts.find((account) => account.ready !== false);
+          if (next) setPaymentAccount(next.id);
+        }).catch(() => undefined);
+      }
     } finally {
       setSubmitting(false);
     }
   };
+
+  const selectedAccount = paymentAccounts.find((account) => account.id === paymentAccount);
+  const selectedAccountReady = Boolean(selectedAccount && selectedAccount.ready !== false);
+  const anyDirectAccountReady = paymentAccounts.some((account) => account.ready !== false);
 
   return (
     <PageShell>
@@ -124,15 +163,26 @@ export function HomePage() {
                 <button
                   key={account.id}
                   type="button"
+                  disabled={account.ready === false}
                   onClick={() => { setPaymentAccount(account.id); setError(undefined); }}
-                  className={`rounded-2xl border px-4 py-3 text-left transition ${paymentAccount === account.id ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                  className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${paymentAccount === account.id && account.ready !== false ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                 >
-                  <strong className="block text-sm text-slate-900">{account.label}</strong>
-                  <span className="mt-1 block text-xs text-slate-500">Verified by {account.verification === 'email' ? 'bank email' : account.verification === 'notification' ? 'Paytm notification' : 'bank SMS'}</span>
+                  <strong className="block text-sm text-slate-900">{account.label}{account.ready === false ? ' · unavailable' : ''}</strong>
+                  <span className="mt-1 block text-xs text-slate-500">{account.ready === false
+                    ? (account.unavailableReason || 'Verification is temporarily unavailable.')
+                    : account.verification === 'notification'
+                      ? 'QR payment · automatic confirmation'
+                      : `Verified by ${account.verification === 'email' ? 'bank email' : 'bank SMS'}`}</span>
                 </button>
               ))}
             </div>
           </fieldset>
+        )}
+
+        {method === 'upi' && !anyDirectAccountReady && (
+          <div role="status" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-800">
+            Direct UPI verification is temporarily unavailable. Please try again after the payment evidence services recover.
+          </div>
         )}
 
         <form onSubmit={submit} className="mt-6 space-y-5">
@@ -164,7 +214,7 @@ export function HomePage() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || (method === 'upi' && (!anyDirectAccountReady || !selectedAccountReady))}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? <CircleNotch className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}

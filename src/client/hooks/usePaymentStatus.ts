@@ -46,6 +46,9 @@ export function usePaymentStatus(id: string): PaymentStatusState & { refresh: ()
         const stored = loadPaymentSession(id);
         const payment: PublicPayment = {
           ...fresh,
+          paymentAccountLabel: fresh.paymentAccountLabel ?? (fresh.status === 'pending' ? stored?.paymentAccountLabel : undefined),
+          verificationMethod: fresh.verificationMethod ?? (fresh.status === 'pending' ? stored?.verificationMethod : undefined),
+          paymentFlow: fresh.paymentFlow ?? (fresh.status === 'pending' ? stored?.paymentFlow : undefined),
           upiUri: fresh.upiUri ?? (fresh.status === 'pending' ? stored?.upiUri : undefined),
         };
         if (payment.status === 'pending' && payment.upiUri) savePaymentSession(payment);
