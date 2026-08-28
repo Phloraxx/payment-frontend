@@ -4,10 +4,15 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export const PAYMENT_ACCOUNTS = ['kotak', 'slice', 'paytm'] as const;
 export type PaymentAccountId = (typeof PAYMENT_ACCOUNTS)[number];
 
+export type PaymentAccountFlow = 'upi_intent' | 'qr_only' | 'merchant_qr';
+
 export interface PaymentAccountOption {
   id: PaymentAccountId;
   label: string;
   verification: 'sms' | 'email' | 'notification';
+  flow?: PaymentAccountFlow;
+  ready?: boolean;
+  unavailableReason?: string;
 }
 
 export interface PaymentAccountsResponse {
@@ -20,6 +25,7 @@ export interface PublicPayment {
   paymentAccount: PaymentAccountId;
   paymentAccountLabel?: string;
   verificationMethod?: 'sms' | 'email' | 'notification';
+  paymentFlow?: PaymentAccountFlow;
   requestedAmount: number;
   requestedAmountPaise: number;
   payableAmount: string;
@@ -57,7 +63,10 @@ export function isPaymentAccountsResponse(value: unknown): value is PaymentAccou
     if (!account || typeof account !== 'object' || Array.isArray(account)) return false;
     const option = account as Record<string, unknown>;
     return isPaymentAccount(option.id) && typeof option.label === 'string' && option.label.length > 0 && option.label.length <= 40 &&
-      (option.verification === 'sms' || option.verification === 'email' || option.verification === 'notification');
+      (option.verification === 'sms' || option.verification === 'email' || option.verification === 'notification') &&
+      (option.flow === undefined || option.flow === 'upi_intent' || option.flow === 'qr_only' || option.flow === 'merchant_qr') &&
+      (option.ready === undefined || typeof option.ready === 'boolean') &&
+      (option.unavailableReason === undefined || (typeof option.unavailableReason === 'string' && option.unavailableReason.length <= 240));
   }) && item.accounts.some((account) => (account as PaymentAccountOption).id === item.default);
 }
 
@@ -98,6 +107,7 @@ export function isPublicPayment(value: unknown): value is PublicPayment {
     !(item.paidAt === null || (typeof item.paidAt === 'string' && Number.isFinite(Date.parse(item.paidAt)))) ||
     !(item.paymentAccountLabel === undefined || (typeof item.paymentAccountLabel === 'string' && item.paymentAccountLabel.length <= 40)) ||
     !(item.verificationMethod === undefined || item.verificationMethod === 'sms' || item.verificationMethod === 'email' || item.verificationMethod === 'notification') ||
+    !(item.paymentFlow === undefined || item.paymentFlow === 'upi_intent' || item.paymentFlow === 'qr_only' || item.paymentFlow === 'merchant_qr') ||
     !(item.upiUri === undefined || (typeof item.upiUri === 'string' && item.upiUri.length <= 4096 && item.upiUri.startsWith('upi://pay?')))
   ) {
     return false;

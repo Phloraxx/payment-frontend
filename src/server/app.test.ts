@@ -162,6 +162,16 @@ describe('API', () => {
     expect(payGate.getPaymentAccounts).toHaveBeenCalledOnce();
   });
 
+  it('rate-limits repeated payment-account availability checks', async () => {
+    const { app, payGate } = makeApp({ statusPerIpLimit: 1, statusGlobalLimit: 10 });
+    const first = await app.request('/api/payment-accounts', { headers: { 'x-forwarded-for': '203.0.113.10' } });
+    const second = await app.request('/api/payment-accounts', { headers: { 'x-forwarded-for': '203.0.113.10' } });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(429);
+    expect(second.headers.get('retry-after')).toBeTruthy();
+    expect(payGate.getPaymentAccounts).toHaveBeenCalledOnce();
+  });
+
   it('creates only whole-rupee payments with a UUID', async () => {
     const { app, payGate } = makeApp();
     const response = await app.request('/api/payments', {
