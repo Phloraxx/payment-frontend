@@ -1,50 +1,40 @@
-import { ArrowRight, CircleNotch, CreditCard, CurrencyInr, QrCode } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { ArrowRight, CaretDown, Check, CircleNotch, CurrencyInr, ShieldCheck } from '@phosphor-icons/react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import type { PaymentAccountId, PaymentAccountOption } from '../../shared/payment.js';
 import { PageShell } from '../components/PageShell';
-import { ClientApiError, createPayment, createRazorpayTestOrder, getPaymentAccounts, getRazorpayTestConfig } from '../lib/api.js';
-import {
-  clearCreateDraft,
-  clearRazorpayCreateDraft,
-  getOrCreateRazorpayRequestId,
-  getOrCreateRequestId,
-  savePaymentSession,
-} from '../lib/session.js';
+import { ClientApiError, createPayment, getPaymentAccounts } from '../lib/api.js';
+import { clearCreateDraft, getOrCreateRequestId, savePaymentSession } from '../lib/session.js';
 
 export function HomePage() {
   const navigate = useNavigate();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [method, setMethod] = useState<'upi' | 'razorpay-test'>('upi');
   const [paymentAccount, setPaymentAccount] = useState<PaymentAccountId>('kotak');
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
-  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let active = true;
-    void getRazorpayTestConfig()
-      .then((config) => { if (active) setRazorpayEnabled(config.enabled); })
-      .catch(() => { if (active) setRazorpayEnabled(false); });
 
     const loadAccounts = async () => {
       try {
         const config = await getPaymentAccounts();
         if (!active) return;
         setPaymentAccounts(config.accounts);
+        setAvailabilityLoaded(true);
         setPaymentAccount((current) => {
-          const currentOption = config.accounts.find((account) => account.id === current && account.ready);
-          if (currentOption) return current;
-          const preferred = config.accounts.find((account) => account.id === config.default && account.ready)
-            ?? config.accounts.find((account) => account.ready);
-          return preferred?.id ?? current;
+          if (config.accounts.some((account) => account.id === current && account.ready)) return current;
+          return config.accounts.find((account) => account.id === config.default && account.ready)?.id
+            ?? config.accounts.find((account) => account.ready)?.id
+            ?? current;
         });
       } catch {
         if (!active) return;
-        // Availability is authoritative and time-sensitive. Never invent a
-        // usable rail when PayGate cannot report readiness.
+        setAvailabilityLoaded(true);
         setPaymentAccounts((current) => current.map((account) => ({
           ...account,
           ready: false,
@@ -52,7 +42,6 @@ export function HomePage() {
         })));
       }
     };
-
     void loadAccounts();
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadAccounts();
@@ -66,168 +55,134 @@ export function HomePage() {
     };
   }, []);
 
+  const readyAccounts = useMemo(() => paymentAccounts.filter((account) => account.ready), [paymentAccounts]);
+  const selected = paymentAccounts.find((account) => account.id === paymentAccount);
+  const canCreate = Boolean(selected?.ready);
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const rupees = Number(amount);
     if (!/^[1-9]\d*$/.test(amount.trim()) || !Number.isSafeInteger(rupees) || rupees <= 0) {
-      setError('Enter a positive whole-rupee amount, for example 100.');
+      setError('Enter a whole-rupee amount greater than zero.');
+      return;
+    }
+    if (!selected?.ready) {
+      setError(selected?.unavailableReason || 'Payment verification is temporarily unavailable.');
       return;
     }
 
     setSubmitting(true);
     setError(undefined);
     try {
-      if (method === 'razorpay-test') {
-        if (!razorpayEnabled) throw new ClientApiError('RAZORPAY_TEST_DISABLED', 'Razorpay Test Mode is unavailable.', 404);
-        const requestId = getOrCreateRazorpayRequestId(rupees);
-        const order = await createRazorpayTestOrder({ amount: rupees, requestId });
-        clearRazorpayCreateDraft();
-        navigate(`/razorpay-test/${order.id}`);
-      } else {
-        const selected = paymentAccounts.find((account) => account.id === paymentAccount);
-        if (!selected || !selected.ready) {
-          throw new ClientApiError('PAYMENT_ACCOUNT_UNAVAILABLE', selected?.unavailableReason || 'This payment account is temporarily unavailable.', 503);
-        }
-        // Reuse this idempotency key after a lost response so retrying cannot
-        // reserve a second DDM amount for the same checkout attempt.
-        const requestId = getOrCreateRequestId(rupees, paymentAccount);
-        const payment = await createPayment({ amount: rupees, requestId, paymentAccount });
-        savePaymentSession(payment);
-        clearCreateDraft();
-        navigate(`/pay/${payment.id}`);
-      }
+      const requestId = getOrCreateRequestId(rupees, paymentAccount);
+      const payment = await createPayment({ amount: rupees, requestId, paymentAccount });
+      savePaymentSession(payment);
+      clearCreateDraft();
+      navigate(`/pay/${payment.id}`);
     } catch (requestError) {
       setError(requestError instanceof ClientApiError ? requestError.message : 'Unable to create the payment right now.');
       if (requestError instanceof ClientApiError && requestError.code === 'PAYMENT_ACCOUNT_UNAVAILABLE') {
-        void getPaymentAccounts().then((config) => {
-          setPaymentAccounts(config.accounts);
-          const next = config.accounts.find((account) => account.ready);
-          if (next) setPaymentAccount(next.id);
-        }).catch(() => undefined);
+        void getPaymentAccounts().then((config) => setPaymentAccounts(config.accounts)).catch(() => undefined);
       }
     } finally {
       setSubmitting(false);
     }
   };
-
-  const selectedAccount = paymentAccounts.find((account) => account.id === paymentAccount);
-  const selectedAccountReady = Boolean(selectedAccount?.ready);
-  const anyDirectAccountReady = paymentAccounts.some((account) => account.ready);
-
   return (
     <PageShell>
-      <div className="relative z-10">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">New payment</p>
-        <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-950">How much should be paid?</h2>
-        <p className="mt-3 text-sm leading-relaxed text-slate-500">
-          Choose direct UPI verification or Razorpay Test Mode, then enter a whole-rupee amount.
+      <div>
+        <p className="paygate-kicker">New payment</p>
+        <h1 className="paygate-title mt-4 max-w-[10ch]">Enter the amount. PayGate handles the match.</h1>
+        <p className="paygate-copy mt-4 max-w-[48ch]">
+          We create one exact UPI amount and verify the matching credit automatically.
         </p>
 
-        <div className="mt-7 grid grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={method === 'upi'}
-            onClick={() => { setMethod('upi'); setError(undefined); }}
-            className={`rounded-2xl border p-4 text-left transition ${method === 'upi' ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
-          >
-            <QrCode className="h-6 w-6" />
-            <strong className="mt-3 block text-sm">Direct UPI</strong>
-            <span className={`mt-1 block text-xs leading-relaxed ${method === 'upi' ? 'text-slate-300' : 'text-slate-500'}`}>Exact QR amount verified from trusted payment evidence.</span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={method === 'razorpay-test'}
-            disabled={!razorpayEnabled}
-            onClick={() => { setMethod('razorpay-test'); setError(undefined); }}
-            className={`rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${method === 'razorpay-test' ? 'border-sky-700 bg-sky-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
-          >
-            <CreditCard className="h-6 w-6" />
-            <strong className="mt-3 block text-sm">Razorpay Test</strong>
-            <span className={`mt-1 block text-xs leading-relaxed ${method === 'razorpay-test' ? 'text-sky-100' : 'text-slate-500'}`}>{razorpayEnabled ? 'Mock Checkout—no real money.' : 'Temporarily unavailable.'}</span>
-          </button>
-        </div>
-
-        {method === 'razorpay-test' && razorpayEnabled && (
-          <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-800">
-            <strong>Test Mode:</strong> Razorpay will simulate the payment. No real money is charged or settled.
-          </div>
-        )}
-
-        {method === 'upi' && paymentAccounts.length > 1 && (
-          <fieldset className="mt-5">
-            <legend className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Receive in</legend>
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              {paymentAccounts.map((account) => (
-                <button
-                  key={account.id}
-                  type="button"
-                  disabled={!account.ready}
-                  onClick={() => { setPaymentAccount(account.id); setError(undefined); }}
-                  className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${paymentAccount === account.id && account.ready ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-                >
-                  <strong className="block text-sm text-slate-900">{account.label}{!account.ready ? ' · unavailable' : ''}</strong>
-                  <span className="mt-1 block text-xs text-slate-500">{!account.ready
-                    ? (account.unavailableReason || 'Verification is temporarily unavailable.')
-                    : account.verification === 'notification'
-                      ? 'QR payment · automatic confirmation'
-                      : `Verified by ${account.verification === 'email' ? 'bank email' : 'bank SMS'}`}</span>
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
-
-        {method === 'upi' && !anyDirectAccountReady && (
-          <div role="status" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-800">
-            Direct UPI verification is temporarily unavailable. Please try again after the payment evidence services recover.
-          </div>
-        )}
-
-        <form onSubmit={submit} className="mt-6 space-y-5">
+        <form onSubmit={submit} className="mt-8">
           <label className="block">
-            <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Amount</span>
-            <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 transition focus-within:border-slate-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-slate-100">
-              <CurrencyInr className="h-6 w-6 text-slate-400" />
+            <span className="sr-only">Amount in whole rupees</span>
+            <div className="group flex items-center border-b-2 border-black/12 pb-3 transition focus-within:border-black/70">
+              <CurrencyInr weight="bold" className="h-8 w-8 shrink-0 text-black/28 sm:h-10 sm:w-10" />
               <input
+                autoFocus
                 value={amount}
-                onChange={(event) => {
-                  setAmount(event.target.value);
-                  setError(undefined);
-                }}
+                onChange={(event) => { setAmount(event.target.value); setError(undefined); }}
                 inputMode="numeric"
                 pattern="[0-9]*"
                 autoComplete="off"
-                placeholder="100"
+                placeholder="500"
                 aria-label="Amount in whole rupees"
-                className="min-w-0 flex-1 bg-transparent px-2 py-4 text-2xl font-semibold tracking-tight outline-none placeholder:text-slate-300"
+                className="paygate-number min-w-0 flex-1 bg-transparent px-2 text-[3.6rem] font-black leading-none tracking-[-0.065em] text-[#11110f] outline-none placeholder:text-black/12 sm:text-[5.1rem]"
               />
             </div>
           </label>
 
+          <div className="mt-6 rounded-[1.35rem] border border-black/8 bg-black/[0.025] p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-black/35">Verification route</p>
+                <p className="mt-1 truncate text-sm font-bold text-black/75">
+                  {!availabilityLoaded ? 'Checking availability…' : selected?.ready ? selected.label : 'No route available'}
+                </p>
+                {selected?.ready && (
+                  <p className="mt-0.5 text-xs text-black/42">{verificationLabel(selected)}</p>
+                )}
+              </div>
+              {paymentAccounts.length > 1 && (
+                <button type="button" className="paygate-chip shrink-0" onClick={() => setChooserOpen((open) => !open)} aria-expanded={chooserOpen}>
+                  Change <CaretDown className={`h-3.5 w-3.5 transition ${chooserOpen ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+            </div>
+            {chooserOpen && (
+              <div className="mt-3 grid gap-2 border-t border-black/8 pt-3">
+                {paymentAccounts.map((account) => (
+                  <button
+                    key={account.id}
+                    type="button"
+                    disabled={!account.ready}
+                    onClick={() => { setPaymentAccount(account.id); setChooserOpen(false); setError(undefined); }}
+                    className="flex min-h-12 items-center justify-between gap-4 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/80 disabled:opacity-40"
+                  >
+                    <span>
+                      <strong className="block text-sm text-black/75">{account.label}</strong>
+                      <span className="mt-0.5 block text-xs text-black/40">{account.ready ? verificationLabel(account) : (account.unavailableReason || 'Unavailable')}</span>
+                    </span>
+                    {account.id === paymentAccount && account.ready && <Check weight="bold" className="h-4 w-4 shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {availabilityLoaded && readyAccounts.length === 0 && (
+            <div role="status" className="mt-4 rounded-[1.2rem] border border-amber-900/10 bg-amber-100/55 px-4 py-3 text-sm leading-5 text-amber-950/75">
+              Payment verification is temporarily unavailable. No payment session will be created until a verification route is healthy.
+            </div>
+          )}
+
           {error && (
-            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-700">
+            <div role="alert" className="mt-4 rounded-[1.2rem] border border-red-900/10 bg-red-100/60 px-4 py-3 text-sm leading-5 text-red-950/75">
               {error}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting || (method === 'upi' && (!anyDirectAccountReady || !selectedAccountReady))}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <button type="submit" disabled={submitting || !canCreate} className="button-primary mt-5 min-h-14 rounded-[1.25rem] text-[15px]">
             {submitting ? <CircleNotch className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-            {submitting ? 'Creating payment…' : method === 'razorpay-test' ? 'Continue to Razorpay Test' : 'Generate UPI payment'}
+            {submitting ? 'Creating secure payment…' : 'Continue'}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs leading-relaxed text-slate-400">
-          {method === 'razorpay-test'
-            ? 'Razorpay Test Mode is isolated from the direct-UPI payment records.'
-            : 'The payment destination and exact payable amount always come from PayGate.'}
-        </p>
+        <div className="mt-5 flex items-start gap-2.5 text-xs leading-5 text-black/42">
+          <ShieldCheck weight="duotone" className="mt-0.5 h-4 w-4 shrink-0 text-black/48" />
+          <p>The final amount includes a small paise marker used only to identify your payment. Always pay the exact amount shown on the next screen.</p>
+        </div>
       </div>
     </PageShell>
   );
+}
+
+function verificationLabel(account: PaymentAccountOption): string {
+  if (account.verification === 'notification') return account.flow === 'qr_only' ? 'QR · automatic Paytm verification' : 'Automatic notification verification';
+  if (account.verification === 'email') return 'Automatic bank-email verification';
+  return 'Automatic bank-SMS verification';
 }
