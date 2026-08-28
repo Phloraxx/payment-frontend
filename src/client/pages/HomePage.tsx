@@ -35,10 +35,10 @@ export function HomePage() {
         if (!active) return;
         setPaymentAccounts(config.accounts);
         setPaymentAccount((current) => {
-          const currentOption = config.accounts.find((account) => account.id === current && account.ready !== false);
+          const currentOption = config.accounts.find((account) => account.id === current && account.ready);
           if (currentOption) return current;
-          const preferred = config.accounts.find((account) => account.id === config.default && account.ready !== false)
-            ?? config.accounts.find((account) => account.ready !== false);
+          const preferred = config.accounts.find((account) => account.id === config.default && account.ready)
+            ?? config.accounts.find((account) => account.ready);
           return preferred?.id ?? current;
         });
       } catch {
@@ -85,7 +85,7 @@ export function HomePage() {
         navigate(`/razorpay-test/${order.id}`);
       } else {
         const selected = paymentAccounts.find((account) => account.id === paymentAccount);
-        if (!selected || selected.ready === false) {
+        if (!selected || !selected.ready) {
           throw new ClientApiError('PAYMENT_ACCOUNT_UNAVAILABLE', selected?.unavailableReason || 'This payment account is temporarily unavailable.', 503);
         }
         // Reuse this idempotency key after a lost response so retrying cannot
@@ -101,7 +101,7 @@ export function HomePage() {
       if (requestError instanceof ClientApiError && requestError.code === 'PAYMENT_ACCOUNT_UNAVAILABLE') {
         void getPaymentAccounts().then((config) => {
           setPaymentAccounts(config.accounts);
-          const next = config.accounts.find((account) => account.ready !== false);
+          const next = config.accounts.find((account) => account.ready);
           if (next) setPaymentAccount(next.id);
         }).catch(() => undefined);
       }
@@ -111,8 +111,8 @@ export function HomePage() {
   };
 
   const selectedAccount = paymentAccounts.find((account) => account.id === paymentAccount);
-  const selectedAccountReady = Boolean(selectedAccount && selectedAccount.ready !== false);
-  const anyDirectAccountReady = paymentAccounts.some((account) => account.ready !== false);
+  const selectedAccountReady = Boolean(selectedAccount?.ready);
+  const anyDirectAccountReady = paymentAccounts.some((account) => account.ready);
 
   return (
     <PageShell>
@@ -163,12 +163,12 @@ export function HomePage() {
                 <button
                   key={account.id}
                   type="button"
-                  disabled={account.ready === false}
+                  disabled={!account.ready}
                   onClick={() => { setPaymentAccount(account.id); setError(undefined); }}
-                  className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${paymentAccount === account.id && account.ready !== false ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                  className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${paymentAccount === account.id && account.ready ? 'border-slate-950 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                 >
-                  <strong className="block text-sm text-slate-900">{account.label}{account.ready === false ? ' · unavailable' : ''}</strong>
-                  <span className="mt-1 block text-xs text-slate-500">{account.ready === false
+                  <strong className="block text-sm text-slate-900">{account.label}{!account.ready ? ' · unavailable' : ''}</strong>
+                  <span className="mt-1 block text-xs text-slate-500">{!account.ready
                     ? (account.unavailableReason || 'Verification is temporarily unavailable.')
                     : account.verification === 'notification'
                       ? 'QR payment · automatic confirmation'

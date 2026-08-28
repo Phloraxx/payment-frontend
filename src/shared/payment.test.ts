@@ -46,4 +46,11 @@ describe('isPaymentAccountsResponse', () => {
       accounts: [{ id: 'paytm', label: 'Paytm', verification: 'notification', flow: 'unknown', ready: 'yes' }],
     })).toBe(false);
   });
+
+  it('requires capability and readiness metadata', () => {
+    expect(isPaymentAccountsResponse({
+      default: 'paytm',
+      accounts: [{ id: 'paytm', label: 'Paytm', verification: 'notification' }],
+    })).toBe(false);
+  });
 });
