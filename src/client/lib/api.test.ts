@@ -46,15 +46,6 @@ describe('direct checkout API migration', () => {
     expect(init?.body).toBe(JSON.stringify({ amount: 100, paymentAccount: 'kotak' }));
   });
 
-  it('keeps legacy Hono payment route when unset', async () => {
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', '');
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(payment, 201));
-    const input = { amount: 100, requestId: 'legacy-request', paymentAccount: 'kotak' as const };
-    await createPayment(input);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('/api/payments');
-    expect(init?.body).toBe(JSON.stringify(input));
-  });
 
   it('uses checkout v2 for status and rail availability', async () => {
     vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', 'https://pay.example.com');
@@ -71,6 +62,18 @@ describe('direct checkout API migration', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(`https://pay.example.com/api/checkout/v2/payments/${payment.id}`);
     expect(fetchMock.mock.calls[1]![0]).toBe('https://pay.example.com/api/checkout/v2/payment-accounts');
   });
+  it('defaults to the production PayGate origin and rejects unsafe overrides', async () => {
+    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', '');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({
+      default: 'kotak', accounts: [{ id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true }],
+    }));
+    await getPaymentAccounts();
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://pay.mulearnscet.in/api/checkout/v2/payment-accounts');
+    fetchMock.mockRestore();
+    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', 'http://evil.example.com');
+    await expect(getPaymentAccounts()).rejects.toMatchObject({ code: 'CHECKOUT_NOT_CONFIGURED', status: 503 });
+  });
+
 });
 
 const razorpayTestOrder = {
@@ -115,14 +118,4 @@ describe('Razorpay checkout API migration', () => {
     ]);
   });
 
-  it('retains legacy Hono Razorpay routes until the cutover env is set', async () => {
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', '');
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(razorpayTestOrder, 201));
-    const { createRazorpayTestOrder } = await import('./api.js');
-    const input = { amount: 1, requestId: 'legacy-razorpay-request' };
-    await createRazorpayTestOrder(input);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('/api/razorpay/test/orders');
-    expect(init?.body).toBe(JSON.stringify(input));
-  });
 });
