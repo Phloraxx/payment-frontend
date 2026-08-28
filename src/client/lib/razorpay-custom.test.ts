@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { RazorpayTestOrder } from '../../shared/razorpay.js';
-import { buildNetbankingTestPayment, buildRazorpayCallbackUrl, razorpayPaymentErrorMessage, RAZORPAY_CUSTOM_SCRIPT_URL } from './razorpay-custom.js';
+import { buildNetbankingTestPayment, razorpayPaymentErrorMessage, RAZORPAY_CUSTOM_SCRIPT_URL } from './razorpay-custom.js';
 
 const order: RazorpayTestOrder = {
   id: 'razorpayorder01', amountPaise: 12500, currency: 'INR', status: 'created', externalId: 'portal:test',
@@ -16,14 +16,11 @@ describe('Razorpay Custom Checkout data', () => {
     expect(RAZORPAY_CUSTOM_SCRIPT_URL).not.toContain('checkout.js');
   });
 
-  it("uses Razorpay's documented redirect flow for bank authentication", () => {
+  it('initializes Custom Checkout with only the public Key ID', () => {
     const options: ConstructorParameters<NonNullable<Window['Razorpay']>>[0] = {
       key: 'rzp_test_public123',
-      redirect: true,
-      callback_url: buildRazorpayCallbackUrl('razorpayorder01', 'https://pay.ieeesahrdaya.com'),
     };
-    expect(options.redirect).toBe(true);
-    expect(options.callback_url).toBe('https://pay.ieeesahrdaya.com/api/razorpay/test/callback?order=razorpayorder01');
+    expect(options).toEqual({ key: 'rzp_test_public123' });
   });
 
   it('builds a bank-specific Test Mode payment without collecting customer data', () => {
@@ -49,13 +46,5 @@ describe('Razorpay Custom Checkout data', () => {
     expect(razorpayPaymentErrorMessage({})).toMatch(/failed or cancelled/i);
   });
 
-
-  it('builds only same-origin HTTP(S) callback URLs', () => {
-    expect(buildRazorpayCallbackUrl('razorpayorder01', 'http://localhost:3000')).toBe(
-      'http://localhost:3000/api/razorpay/test/callback?order=razorpayorder01',
-    );
-    expect(() => buildRazorpayCallbackUrl('bad', 'https://pay.ieeesahrdaya.com')).toThrow(/callback ID/i);
-    expect(() => buildRazorpayCallbackUrl('razorpayorder01', 'file:///tmp')).toThrow(/callback origin/i);
-  });
 
 });
