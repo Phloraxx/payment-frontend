@@ -7,7 +7,6 @@ import {
   Copy,
   DownloadSimple,
   Hourglass,
-  QrCode,
   ShareNetwork,
   WarningCircle,
   XCircle,
@@ -218,18 +217,6 @@ function accountFallback(payment: PublicPayment): string {
   if (payment.paymentAccount === 'slice') return 'Slice';
   if (payment.paymentAccount === 'paytm') return 'Paytm';
   return 'Kotak';
-}
-
-function verificationFallback(payment: PublicPayment): NonNullable<PublicPayment['verificationMethod']> {
-  if (payment.paymentAccount === 'slice') return 'email';
-  if (payment.paymentAccount === 'paytm') return 'notification';
-  return 'sms';
-}
-
-function verificationLabel(method: NonNullable<PublicPayment['verificationMethod']>): string {
-  if (method === 'email') return 'the bank email';
-  if (method === 'notification') return 'the Paytm notification';
-  return 'the bank SMS';
 }
 
 function readPaymentAttempted(paymentId: string): boolean {
