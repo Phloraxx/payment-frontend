@@ -7,7 +7,6 @@ import {
   Copy,
   DownloadSimple,
   Hourglass,
-  QrCode,
   ShareNetwork,
   WarningCircle,
   XCircle,
@@ -62,7 +61,6 @@ function PendingPayment({ payment, refreshing, error, onRefresh }: {
   const upiId = payment.upiUri ? getUpiId(payment.upiUri) : null;
   const accountLabel = payment.paymentAccountLabel ?? accountFallback(payment);
   const flow = payment.paymentFlow ?? (payment.paymentAccount === 'paytm' ? 'qr_only' : 'upi_intent');
-  const verification = payment.verificationMethod ?? verificationFallback(payment);
   const qrOnly = flow === 'qr_only' || flow === 'merchant_qr';
   const adjustment = verificationAdjustmentPaise(payment.requestedAmountPaise, payment.payableAmountPaise);
 
@@ -78,167 +76,59 @@ function PendingPayment({ payment, refreshing, error, onRefresh }: {
     return () => window.cancelAnimationFrame(frame);
   }, [personalUpiUri, payment.id]);
 
-  const rememberAttempt = () => {
-    setAttempted(true);
-    writePaymentAttempted(payment.id);
-  };
-
+  const rememberAttempt = () => { setAttempted(true); writePaymentAttempted(payment.id); };
   const copyText = async (kind: 'amount' | 'upi', value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(kind);
-      window.setTimeout(() => setCopied((current) => current === kind ? null : current), 1400);
-    } catch {
-      // The value remains visible for manual entry.
-    }
+    try { await navigator.clipboard.writeText(value); setCopied(kind); window.setTimeout(() => setCopied((current) => current === kind ? null : current), 1400); } catch { /* visible fallback */ }
   };
-
   const downloadQr = () => {
     if (!qrImageUrl) return false;
-    const link = document.createElement('a');
-    link.href = qrImageUrl;
-    link.download = `paygate-${payment.payableAmount}-${payment.id.slice(0, 8)}.png`;
-    link.click();
-    rememberAttempt();
-    return true;
+    const link = document.createElement('a'); link.href = qrImageUrl; link.download = `paygate-${payment.payableAmount}-${payment.id.slice(0, 8)}.png`; link.click(); rememberAttempt(); return true;
   };
-
-  const openUpi = () => {
-    if (!personalUpiUri || locallyExpired) return;
-    setHandoffError(undefined);
-    rememberAttempt();
-    window.location.href = personalUpiUri;
-  };
-
+  const openUpi = () => { if (!personalUpiUri || locallyExpired) return; setHandoffError(undefined); rememberAttempt(); window.location.href = personalUpiUri; };
   const shareQr = async () => {
     const file = qrShareFile.current;
-    if (!file || typeof navigator.share !== 'function' || !navigator.canShare?.({ files: [file] })) {
-      setHandoffError('Sharing is not supported here. Save the QR instead.');
-      return;
-    }
-    try {
-      await navigator.share({ files: [file], title: `Pay ₹${payment.payableAmount}` });
-      rememberAttempt();
-    } catch (shareError) {
-      if (!(shareError instanceof DOMException && shareError.name === 'AbortError')) {
-        setHandoffError('Could not open the share sheet. Save the QR instead.');
-      }
-    }
+    if (!file || typeof navigator.share !== 'function' || !navigator.canShare?.({ files: [file] })) { setHandoffError('Sharing is not available here. Save the QR instead.'); return; }
+    try { await navigator.share({ files: [file], title: `Pay ₹${payment.payableAmount}` }); rememberAttempt(); }
+    catch (shareError) { if (!(shareError instanceof DOMException && shareError.name === 'AbortError')) setHandoffError('Could not open sharing. Save the QR instead.'); }
   };
+
+  if (locallyExpired) {
+    return <PageShell><div className="payment-ended"><div className="ended-icon"><Hourglass /></div><p className="paygate-kicker">Payment expired</p><h1>Don’t pay this one.</h1><p>This payment window has ended. PayGate is doing one final status check in case money arrived before the deadline.</p><button onClick={() => void onRefresh()} disabled={refreshing} className="button-secondary">{refreshing ? <CircleNotch className="h-4 w-4 animate-spin" /> : null} Check status</button><Link to="/" className="button-primary">Start a new payment</Link></div></PageShell>;
+  }
 
   return (
     <PageShell>
-      <div>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="paygate-kicker">{accountLabel} payment</p>
-            <h1 className="mt-3 text-2xl font-black tracking-[-0.045em] text-[#11110f]">
-              {locallyExpired ? 'Payment window ended' : attempted ? 'Waiting for verification' : 'Pay exactly'}
-            </h1>
-          </div>
-          <div className={`paygate-chip pointer-events-none ${locallyExpired ? 'bg-amber-100/60 text-amber-950/70' : 'bg-white/65'}`} aria-live="polite">
-            {refreshing ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <span className={`h-1.5 w-1.5 rounded-full ${locallyExpired ? 'bg-amber-500' : 'bg-emerald-500'}`} />}
-            {locallyExpired ? 'Final check' : formatCountdown(secondsLeft)}
-          </div>
-        </div>
+      <div className="payment-ready">
+        <div className="payment-topline"><div><p className="paygate-kicker">Ready to pay</p><p className="payment-receiver">to {accountLabel}</p></div><div className="payment-timer" aria-live="polite">{refreshing ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <span className="timer-dot" />}{formatCountdown(secondsLeft)}</div></div>
 
-        {locallyExpired ? (
-          <div className="mt-7 rounded-[1.5rem] border border-amber-900/10 bg-amber-100/55 p-5">
-            <Hourglass className="h-8 w-8 text-amber-900/65" />
-            <p className="mt-4 text-lg font-black tracking-[-0.03em] text-amber-950">Do not send this payment now.</p>
-            <p className="mt-2 text-sm leading-6 text-amber-950/65">The QR and UPI actions are disabled. PayGate is still checking the authoritative final status in case the credit happened before expiry.</p>
-          </div>
-        ) : (
-          <>
-            <div className="mt-8 flex items-end justify-between gap-4 border-b border-black/10 pb-5">
-              <div>
-                <p className="paygate-kicker">Exact amount</p>
-                <p className="paygate-number mt-2 text-[3.8rem] font-black leading-none tracking-[-0.07em] text-[#11110f] sm:text-[5rem]">{formatRupeesFromPaise(payment.payableAmountPaise)}</p>
-              </div>
-              <button onClick={() => void copyText('amount', payment.payableAmount)} className="button-icon mb-1" aria-label="Copy exact amount">
-                {copied === 'amount' ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-              </button>
-            </div>
+        <section className="exact-amount-card">
+          <span>Pay exactly</span>
+          <div className="exact-amount-row"><strong className="paygate-number">{formatRupeesFromPaise(payment.payableAmountPaise)}</strong><button onClick={() => void copyText('amount', payment.payableAmount)} className="button-icon" aria-label="Copy exact amount">{copied === 'amount' ? <Check /> : <Copy />}</button></div>
+          <p>Don’t round or change this amount.</p>
+        </section>
 
-            {attempted && (
-              <div role="status" className="mt-5 flex gap-3 rounded-[1.4rem] border border-emerald-900/10 bg-emerald-100/45 p-4">
-                <CircleNotch className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-emerald-800/70" />
-                <div>
-                  <p className="text-sm font-bold text-emerald-950/85">Checking for the matching credit</p>
-                  <p className="mt-1 text-xs leading-5 text-emerald-950/55">No confirmation tap is needed. This page updates only after {verificationLabel(verification)} verifies the payment.</p>
-                </div>
-              </div>
-            )}
+        {attempted && <div className="waiting-card"><CircleNotch className="h-5 w-5 animate-spin" /><div><strong>Waiting for payment</strong><p>You can leave this page open. It updates automatically when the payment is confirmed.</p></div></div>}
 
-            {personalUpiUri ? (
-              <>
-                <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true">
-                  <QRCodeCanvas value={personalUpiUri} level="M" size={768} bgColor="#ffffff" fgColor="#11110f" />
-                </div>
+        {personalUpiUri ? <>
+          <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true"><QRCodeCanvas value={personalUpiUri} level="M" size={768} bgColor="#ffffff" fgColor="#171814" /></div>
+          {qrOnly ? <>
+            <div className="qr-stage">{qrImageUrl ? <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} /> : <CircleNotch className="h-7 w-7 animate-spin text-black/30" />}</div>
+            <button onClick={() => void downloadQr()} disabled={!qrImageUrl} className="button-primary payment-primary"><DownloadSimple className="h-5 w-5" /> Save QR and pay</button>
+            <p className="payment-help">Save the QR, then choose it from your UPI app’s scanner.</p>
+          </> : <>
+            <button onClick={openUpi} className="button-primary payment-primary"><ArrowSquareOut className="h-5 w-5" /> Open UPI app</button>
+            <div className="qr-fallback"><div><strong>Paying from another device?</strong><span>Scan this QR instead.</span></div>{qrImageUrl ? <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} /> : <CircleNotch className="h-5 w-5 animate-spin" />}</div>
+          </>}
+        </> : <div className="checkout-warning"><strong>Payment handoff unavailable</strong><p>Create a new payment to get a fresh UPI link or QR.</p></div>}
 
-                <div className="mx-auto mt-6 w-full max-w-[310px] rounded-[1.8rem] border border-black/8 bg-white p-4 shadow-[0_20px_45px_-30px_rgba(17,17,15,.42)]">
-                  {qrImageUrl ? (
-                    <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} className="aspect-square h-auto w-full select-none" />
-                  ) : (
-                    <div className="flex aspect-square items-center justify-center"><CircleNotch className="h-7 w-7 animate-spin text-black/30" /></div>
-                  )}
-                </div>
+        {error && <div role="status" className="status-reconnect"><span>Connection interrupted. Your last confirmed status is still safe.</span><button onClick={() => void onRefresh()}>Retry</button></div>}
 
-                {qrOnly ? (
-                  <button onClick={() => void downloadQr()} disabled={!qrImageUrl} className="button-primary mt-5 min-h-14">
-                    <DownloadSimple className="h-5 w-5" /> Save QR to pay
-                  </button>
-                ) : (
-                  <button onClick={openUpi} disabled={!personalUpiUri} className="button-primary mt-5 min-h-14">
-                    <ArrowSquareOut className="h-5 w-5" /> Pay {formatRupeesFromPaise(payment.payableAmountPaise)} in UPI app
-                  </button>
-                )}
-
-                <p className="mt-3 text-center text-xs leading-5 text-black/42">
-                  {qrOnly ? 'Open your UPI app → Scan QR → Gallery, then choose the saved image.' : 'If the UPI app does not open, use the QR below or save it from More options.'}
-                </p>
-              </>
-            ) : (
-              <div className="mt-6 rounded-[1.4rem] border border-amber-900/10 bg-amber-100/55 p-4">
-                <QrCode className="h-6 w-6 text-amber-900/60" />
-                <p className="mt-3 text-sm font-bold text-amber-950/80">Payment handoff unavailable</p>
-                <p className="mt-1 text-xs leading-5 text-amber-950/55">Status checking still works. Create a new payment if you need a fresh QR.</p>
-              </div>
-            )}
-
-            <div className="mt-5 flex items-start gap-3 rounded-[1.25rem] bg-black/[0.035] px-4 py-3.5">
-              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#b6df36]" />
-              <p className="text-xs leading-5 text-black/55">
-                Requested {formatRupeesFromPaise(payment.requestedAmountPaise)} + {formatRupeesFromPaise(adjustment)} verification marker. <strong className="font-bold text-black/75">Do not change the final amount.</strong>
-              </p>
-            </div>
-          </>
-        )}
-
-        {error && (
-          <div role="status" className="mt-4 flex items-center justify-between gap-3 rounded-[1.15rem] border border-amber-900/10 bg-amber-100/45 px-4 py-3 text-xs text-amber-950/65">
-            <span>Reconnecting — the last confirmed status is still shown.</span>
-            <button onClick={() => void onRefresh()} className="font-bold text-amber-950/75 underline underline-offset-2">Retry</button>
-          </div>
-        )}
-
-        <details className="group mt-4 border-t border-black/8 pt-4 text-sm">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between font-bold text-black/48 transition hover:text-black/75">
-            More options & details
-            <span className="text-lg transition group-open:rotate-45">+</span>
-          </summary>
-          <div className="grid gap-2.5 pb-1 pt-3 sm:grid-cols-2">
-            {qrImageUrl && <button onClick={() => void downloadQr()} className="button-secondary"><DownloadSimple className="h-4 w-4" /> Save QR</button>}
-            {qrImageUrl && <button onClick={() => void shareQr()} className="button-secondary"><ShareNetwork className="h-4 w-4" /> Share QR</button>}
-            {upiId && <button onClick={() => void copyText('upi', upiId)} className="button-secondary">{copied === 'upi' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} Copy UPI ID</button>}
-            <button onClick={() => void onRefresh()} disabled={refreshing} className="button-secondary"><CircleNotch className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Check now</button>
-          </div>
-          {handoffError && <p role="status" className="mt-2 text-xs leading-5 text-amber-800">{handoffError}</p>}
-          <dl className="mt-4 grid gap-3 border-t border-black/8 pt-4 text-xs sm:grid-cols-2">
-            <Detail label="Receiver" value={accountLabel} />
-            <Detail label="Payment ID" value={payment.id} mono />
-          </dl>
-        </details>
+        <details className="payment-details"><summary>Payment details <span>+</span></summary><div className="payment-details-body">
+          <dl><Detail label="Payment ID" value={payment.id} mono /><Detail label="Receiver" value={accountLabel} /><Detail label="Requested" value={formatRupeesFromPaise(payment.requestedAmountPaise)} /><Detail label="Verification marker" value={formatRupeesFromPaise(adjustment)} /></dl>
+          <p>The small marker is how PayGate identifies this payment automatically. It is already included in the exact amount above.</p>
+          <div className="detail-actions">{qrImageUrl && <button onClick={() => void downloadQr()} className="button-secondary"><DownloadSimple /> Save QR</button>}{qrImageUrl && <button onClick={() => void shareQr()} className="button-secondary"><ShareNetwork /> Share QR</button>}{upiId && <button onClick={() => void copyText('upi', upiId)} className="button-secondary">{copied === 'upi' ? <Check /> : <Copy />} Copy UPI ID</button>}<button onClick={() => void onRefresh()} disabled={refreshing} className="button-secondary">Check status</button></div>
+          {handoffError && <p className="detail-error">{handoffError}</p>}
+        </div></details>
       </div>
     </PageShell>
   );
@@ -327,18 +217,6 @@ function accountFallback(payment: PublicPayment): string {
   if (payment.paymentAccount === 'slice') return 'Slice';
   if (payment.paymentAccount === 'paytm') return 'Paytm';
   return 'Kotak';
-}
-
-function verificationFallback(payment: PublicPayment): NonNullable<PublicPayment['verificationMethod']> {
-  if (payment.paymentAccount === 'slice') return 'email';
-  if (payment.paymentAccount === 'paytm') return 'notification';
-  return 'sms';
-}
-
-function verificationLabel(method: NonNullable<PublicPayment['verificationMethod']>): string {
-  if (method === 'email') return 'the bank email';
-  if (method === 'notification') return 'the Paytm notification';
-  return 'the bank SMS';
 }
 
 function readPaymentAttempted(paymentId: string): boolean {
