@@ -1,32 +1,22 @@
-const PERSONAL_UPI_PARAMS = ['pa', 'pn', 'am', 'cu'] as const;
-
-export function toPersonalUpiUri(upiUri: string): string | null {
+function parseUpi(upiUri: string): URL | null {
   try {
-    const source = new URL(upiUri);
-    if (source.protocol !== 'upi:' || source.hostname !== 'pay') return null;
-
-    const params = new URLSearchParams();
-    for (const key of PERSONAL_UPI_PARAMS) {
-      const value = source.searchParams.get(key)?.trim();
-      if (value) params.set(key, value);
-    }
-
-    if (!params.get('pa') || !params.get('am')) return null;
-    if (!params.get('cu')) params.set('cu', 'INR');
-
-    return `upi://pay?${params.toString()}`;
+    const url = new URL(upiUri);
+    if (url.protocol !== 'upi:' || url.hostname !== 'pay') return null;
+    if (!url.searchParams.get('pa')?.trim() || !url.searchParams.get('am')?.trim()) return null;
+    return url;
   } catch {
     return null;
   }
 }
 
 export function getUpiId(upiUri: string): string | null {
-  const personalUri = toPersonalUpiUri(upiUri);
-  if (!personalUri) return null;
+  return parseUpi(upiUri)?.searchParams.get('pa')?.trim() || null;
+}
 
-  try {
-    return new URL(personalUri).searchParams.get('pa');
-  } catch {
-    return null;
-  }
+export function getUpiPayeeName(upiUri: string): string | null {
+  return parseUpi(upiUri)?.searchParams.get('pn')?.trim() || null;
+}
+
+export function isCanonicalUpiUri(upiUri: string): boolean {
+  return parseUpi(upiUri) !== null;
 }

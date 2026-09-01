@@ -19,6 +19,21 @@ server {
         return 200 '{"status":"ok"}';
     }
 
+    # Browser-facing PayGate v4 BFF. The merchant API key exists only in this
+    # server-side nginx config rendered from container environment variables.
+    location ^~ /api/paygate/ {
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header Authorization "Bearer ${PAYGATE_V4_API_KEY}";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_pass ${PAYGATE_V4_API_URL}/;
+        proxy_redirect off;
+        add_header Cache-Control "no-store" always;
+        add_header CDN-Cache-Control "no-store" always;
+    }
+
     location /assets/ {
         expires 1y;
         try_files $uri =404;

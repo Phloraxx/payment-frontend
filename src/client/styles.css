@@ -264,3 +264,11 @@
   .payment-details-body dl { grid-template-columns: 1fr; }
   .detail-actions { grid-template-columns: 1fr; }
 }
+
+@layer components {
+  .checkout-meta-grid { display: grid; gap: .8rem; }
+  .checkout-meta-grid label { display: grid; gap: .4rem; color: rgba(23,24,20,.48); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .checkout-meta-input { width: 100%; border: 1px solid rgba(23,24,20,.1); border-radius: 1rem; background: rgba(255,255,255,.58); padding: .9rem 1rem; color: #171814; outline: none; text-transform: none; letter-spacing: normal; font-size: .9rem; font-weight: 700; }
+  .checkout-meta-input:focus { border-color: rgba(38,110,255,.45); box-shadow: 0 0 0 3px rgba(38,110,255,.08); }
+  @media (min-width: 640px) { .checkout-meta-grid { grid-template-columns: 1fr 1fr; } }
+}

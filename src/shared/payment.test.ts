@@ -1,56 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { parsePublicPayment } from './payment.js';
 
-import { isPaymentAccountsResponse, isPublicPayment } from './payment.js';
-
-const payment = {
-  id: 'abcdefghijklmno',
-  paymentAccount: 'kotak',
-  requestedAmount: 100,
-  requestedAmountPaise: 10000,
-  payableAmount: '100.37',
-  payableAmountPaise: 10037,
-  status: 'pending',
-  expiresAt: '2026-07-26T17:30:00Z',
-  paidAt: null,
-  upiUri: 'upi://pay?pa=test%40bank&am=100.37',
+const rawPayment = {
+  id: 'pay_abcdefghijklmno', object: 'payment', name: 'Sourav P Bijoy', external_id: 'evt_123', metadata: {},
+  status: 'pending', currency: 'INR', requested_amount: '100.00', payable_amount: '100.37', adjustment: '0.37',
+  upi_uri: 'upi://pay?pa=test%40bank&pn=PayGate&am=100.37&cu=INR',
+  created_at: '2026-09-01T10:00:00Z', expires_at: '2026-09-01T10:05:00Z', grace_until: '2026-09-01T10:10:00Z', paid_at: null,
 };
 
-describe('isPublicPayment', () => {
-  it('accepts an exact DDM response without floating-point money arithmetic', () => {
-    expect(isPublicPayment(payment)).toBe(true);
-    expect(isPublicPayment({ ...payment, payableAmount: '999999999999.99', payableAmountPaise: 99999999999999 })).toBe(false);
+describe('parsePublicPayment', () => {
+  it('normalizes the v4 snake_case merchant response without provider fields', () => {
+    expect(parsePublicPayment(rawPayment)).toMatchObject({
+      id: rawPayment.id, name: 'Sourav P Bijoy', externalId: 'evt_123', requestedAmountPaise: 10000,
+      payableAmountPaise: 10037, adjustmentPaise: 37, status: 'pending',
+    });
   });
-
-  it('rejects inconsistent or unsafe UPI data', () => {
-    expect(isPublicPayment({ ...payment, payableAmount: '100.38' })).toBe(false);
-    expect(isPublicPayment({ ...payment, upiUri: 'javascript:alert(1)' })).toBe(false);
-    expect(isPublicPayment({ ...payment, status: 'refunded' })).toBe(false);
+  it('rejects inconsistent money, legacy statuses, and unsafe UPI data', () => {
+    expect(parsePublicPayment({ ...rawPayment, adjustment: '0.38' })).toBeUndefined();
+    expect(parsePublicPayment({ ...rawPayment, status: 'late' })).toBeUndefined();
+    expect(parsePublicPayment({ ...rawPayment, upi_uri: 'javascript:alert(1)' })).toBeUndefined();
   });
-});
-
-
-describe('isPaymentAccountsResponse', () => {
-  it('accepts readiness and QR-only metadata from PayGate', () => {
-    expect(isPaymentAccountsResponse({
-      default: 'paytm',
-      accounts: [
-        { id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true },
-        { id: 'paytm', label: 'Paytm', verification: 'notification', flow: 'qr_only', ready: false, unavailableReason: 'Relay offline' },
-      ],
-    })).toBe(true);
-  });
-
-  it('rejects invalid readiness metadata', () => {
-    expect(isPaymentAccountsResponse({
-      default: 'paytm',
-      accounts: [{ id: 'paytm', label: 'Paytm', verification: 'notification', flow: 'unknown', ready: 'yes' }],
-    })).toBe(false);
-  });
-
-  it('requires capability and readiness metadata', () => {
-    expect(isPaymentAccountsResponse({
-      default: 'paytm',
-      accounts: [{ id: 'paytm', label: 'Paytm', verification: 'notification' }],
-    })).toBe(false);
+  it('returns observed payer information only when present', () => {
+    const paid = parsePublicPayment({ ...rawPayment, status: 'paid', paid_at: '2026-09-01T10:03:00Z', payer: { name: 'Bijoy P', upi_id: 'bijoy@okaxis' } });
+    expect(paid).toMatchObject({ payerName: 'Bijoy P', payerUpiId: 'bijoy@okaxis' });
   });
 });

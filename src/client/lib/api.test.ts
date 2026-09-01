@@ -1,79 +1,38 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { createPayment, getPayment, getPaymentAccounts } from './api.js';
+import { createPayment, getPayment } from './api.js';
 
 const payment = {
-  id: 'paytest00000001',
-  paymentAccount: 'kotak' as const,
-  requestedAmount: 100,
-  requestedAmountPaise: 10000,
-  payableAmount: '100.01',
-  payableAmountPaise: 10001,
-  status: 'pending' as const,
-  expiresAt: '2026-08-28T15:30:00Z',
-  paidAt: null,
-  upiUri: 'upi://pay?pa=merchant%40upi&am=100.01&cu=INR',
+  id: 'pay_test00000001', object: 'payment', name: 'Sourav P Bijoy', external_id: 'evt_123', metadata: {},
+  status: 'pending' as const, currency: 'INR', requested_amount: '100.00', payable_amount: '100.37', adjustment: '0.37',
+  upi_uri: 'upi://pay?pa=merchant%40upi&pn=PayGate&am=100.37&cu=INR',
+  created_at: '2026-09-01T10:00:00Z', expires_at: '2026-09-01T10:05:00Z', grace_until: '2026-09-01T10:10:00Z', paid_at: null,
 };
-
 function jsonResponse(value: unknown, status = 200): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 }
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
-});
-describe('direct checkout API migration', () => {
-  it('uses Go checkout v2 when configured', async () => {
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', 'https://pay.example.com/');
+describe('PayGate v4 merchant client', () => {
+  it('uses the same-origin keyless BFF and sends no collection profile', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(payment, 201));
-
-    await createPayment({
-      amount: 100,
-      requestId: '2f54d1c8-4ef4-4c21-9ff8-b9f4fc8e79a1',
-      paymentAccount: 'kotak',
-    });
-
+    const requestId = '2f54d1c8-4ef4-4c21-9ff8-b9f4fc8e79a1';
+    const result = await createPayment({ amount: 100, name: 'Sourav P Bijoy', externalId: 'evt_123', requestId });
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('https://pay.example.com/api/checkout/v2/payments');
-    expect(init?.headers).toMatchObject({
-      'Content-Type': 'application/json',
-      'Idempotency-Key': '2f54d1c8-4ef4-4c21-9ff8-b9f4fc8e79a1',
-    });
-    expect(init?.body).toBe(JSON.stringify({ amount: 100, paymentAccount: 'kotak' }));
+    expect(url).toBe('/api/paygate/v1/payments');
+    expect(init?.headers).toMatchObject({ 'Content-Type': 'application/json', 'Idempotency-Key': requestId });
+    expect(init?.body).toBe(JSON.stringify({ amount: 100, name: 'Sourav P Bijoy', external_id: 'evt_123', metadata: {} }));
+    expect(String(init?.body)).not.toMatch(/paytm|kotak|paymentAccount/i);
+    expect(result).toMatchObject({ id: payment.id, payableAmountPaise: 10037, adjustmentPaise: 37 });
   });
-
-
-  it('uses checkout v2 for status and rail availability', async () => {
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', 'https://pay.example.com');
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse(payment))
-      .mockResolvedValueOnce(jsonResponse({
-        default: 'kotak',
-        accounts: [{ id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true }],
-      }));
-
+  it('polls the same v4 payment resource', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(payment));
     await getPayment(payment.id);
-    await getPaymentAccounts();
-
-    expect(fetchMock.mock.calls[0]![0]).toBe(`https://pay.example.com/api/checkout/v2/payments/${payment.id}`);
-    expect(fetchMock.mock.calls[1]![0]).toBe('https://pay.example.com/api/checkout/v2/payment-accounts');
+    expect(fetchMock.mock.calls[0]![0]).toBe(`/api/paygate/v1/payments/${payment.id}`);
   });
-  it('defaults to the production PayGate origin and rejects unsafe overrides', async () => {
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', '');
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({
-      default: 'kotak', accounts: [{ id: 'kotak', label: 'Kotak', verification: 'sms', flow: 'upi_intent', ready: true }],
-    }));
-    await getPaymentAccounts();
-    expect(fetchMock.mock.calls[0]![0]).toBe('https://pay.mulearnscet.in/api/checkout/v2/payment-accounts');
-    fetchMock.mockRestore();
-    vi.stubEnv('VITE_PAYGATE_CHECKOUT_URL', 'http://evil.example.com');
-    await expect(getPaymentAccounts()).rejects.toMatchObject({ code: 'CHECKOUT_NOT_CONFIGURED', status: 503 });
+  it('understands the v4 nested error envelope', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ error: { code: 'collection_unavailable', message: 'No collection destination is currently available' } }, 503));
+    await expect(createPayment({ amount: 100, name: 'Sourav', externalId: 'evt_123', requestId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'collection_unavailable', status: 503 });
   });
-
 });
 
 const razorpayTestOrder = {

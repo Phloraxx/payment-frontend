@@ -1,20 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { getUpiId, getUpiPayeeName, isCanonicalUpiUri } from './upi.js';
 
-import { getUpiId, toPersonalUpiUri } from './upi.js';
-
-describe('UPI QR helpers', () => {
-  const merchantLike = 'upi://pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR&tr=payment_123&tn=payment_123&mc=1234';
-
-  it('keeps only the fields used by the personal-account QR flow', () => {
-    expect(toPersonalUpiUri(merchantLike)).toBe('upi://pay?pa=sourav%40oksbi&pn=Sourav&am=100.37&cu=INR');
+describe('UPI helpers', () => {
+  const uri = 'upi://pay?pa=sourav%40oksbi&pn=Sourav%20P%20Bijoy&am=100.37&cu=INR&tn=server-owned';
+  it('reads display fields without rewriting the server-owned UPI string', () => {
+    expect(getUpiId(uri)).toBe('sourav@oksbi');
+    expect(getUpiPayeeName(uri)).toBe('Sourav P Bijoy');
+    expect(isCanonicalUpiUri(uri)).toBe(true);
   });
-
-  it('extracts the payee UPI ID', () => {
-    expect(getUpiId(merchantLike)).toBe('sourav@oksbi');
-  });
-
-  it('rejects non-UPI and incomplete links', () => {
-    expect(toPersonalUpiUri('https://example.com')).toBeNull();
-    expect(toPersonalUpiUri('upi://pay?pn=Sourav&am=100.37')).toBeNull();
+  it('rejects non-UPI or incomplete instructions', () => {
+    expect(isCanonicalUpiUri('https://example.com')).toBe(false);
+    expect(isCanonicalUpiUri('upi://pay?pn=Sourav&am=100.37')).toBe(false);
   });
 });

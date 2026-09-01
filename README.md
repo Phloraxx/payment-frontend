@@ -1,51 +1,78 @@
-# PayGate Checkout
+# PayGate Test Frontend
 
-PayGate Checkout is a static React/Vite application for direct bank/UPI and Razorpay checkout flows.
+This repository is the browser test/reference client for PayGate. It is **not** the payment router. The v4 PayGate flow intentionally knows nothing about Paytm, Kotak, SMS parsing, relay state, or collection-profile selection.
 
-## Architecture
+## PayGate v4 flow
 
 ```text
 Browser
-  ├─ Kotak / Slice / Paytm ──► PayGate /api/checkout/v2
-  └─ Razorpay checkout ───────► Razorpay JS + PayGate /api/checkout/v2
+  │ amount + person/name + event ID
+  ▼
+nginx same-origin BFF
+  │ inject dedicated merchant API key
+  ▼
+PayGate /v1/payments
+  │ chooses active collection profile + reserves exact amount
+  ▼
+canonical upi_uri
+  │
+  └─ browser renders QR and polls GET /v1/payments/:id
 ```
 
-There is no application server or BFF in this repository. The production image serves compiled assets with Nginx. Payment creation, throttling, rail readiness, signature verification, and provider state live in the Go PayGate API.
+The browser never receives a PayGate merchant API key. `PAYGATE_V4_API_KEY` is a runtime-only container variable and is injected by nginx for requests under `/api/paygate/`. Do not prefix it with `VITE_`.
 
-The browser never receives PayGate integration credentials or Razorpay Key Secrets. Razorpay Key IDs are public by design and are returned only when the corresponding rail is enabled.
+The direct PayGate create request contains only:
+
+```json
+{
+  "amount": 100,
+  "name": "Sourav P Bijoy",
+  "external_id": "evt_hardware_security_2026",
+  "metadata": {}
+}
+```
+
+`Idempotency-Key` is generated client-side and reused only while the amount + name + event ID draft is unchanged. No collection-profile identifier is accepted or sent by this frontend.
+
+## QR and lifecycle
+
+PayGate returns the canonical `upi_uri`; the frontend renders that exact string as the QR. It does not reconstruct or sanitize it into a provider-specific variant.
+
+The UI follows the server lifecycle:
+
+- normal payment window through `expires_at`;
+- visible final grace window through `grace_until`;
+- after grace, the QR is no longer presented as payable while the server completes expiry/quarantine handling.
+
+Paid responses can show the observed payer name/UPI ID and `paid_at` when PayGate actually has those fields.
+
+## Runtime configuration
+
+```text
+PAYGATE_V4_API_URL=https://pay.mulearnscet.in
+PAYGATE_V4_API_KEY=<dedicated merchant key>
+```
+
+The container refuses to start without `PAYGATE_V4_API_KEY`. The official nginx image renders `nginx.conf.template` at startup, so the key remains server-side and is absent from browser assets.
+
+`VITE_PAYGATE_CHECKOUT_URL` remains only for the isolated legacy Razorpay experiment pages and is not used by the PayGate v4 flow.
 
 ## Development
 
 ```bash
 npm ci
-npm run dev
+npm run check
 ```
 
-The client defaults to `https://pay.mulearnscet.in`. For a local or staging API, set:
+The browser v4 API uses same-origin `/api/paygate/v1/...`, so local Vite-only development needs either an equivalent dev proxy or a containerized nginx run to exercise real PayGate requests. Unit tests mock this boundary.
 
-```bash
-VITE_PAYGATE_CHECKOUT_URL=https://staging-pay.example.com
-```
+## Production image validation
 
-## Public checkout contract
+The Docker image:
 
-The client calls only the guarded browser endpoints:
+1. runs the full frontend check in Node 22;
+2. serves static assets with nginx;
+3. exposes `/api/health`;
+4. proxies `/api/paygate/*` to the configured PayGate server while injecting the merchant key.
 
-```text
-GET  /api/checkout/v2/payment-accounts
-POST /api/checkout/v2/payments
-GET  /api/checkout/v2/payments/:id
-
-GET  /api/checkout/v2/razorpay/:mode/config
-POST /api/checkout/v2/razorpay/:mode/orders
-GET  /api/checkout/v2/razorpay/:mode/orders/:id
-POST /api/checkout/v2/razorpay/:mode/orders/:id/verify
-```
-
-Payment and Razorpay order creation send the UUID request ID in `Idempotency-Key`. The Go API owns request validation and per-IP/global rate limiting.
-
-Razorpay payment methods are discovered from the Custom Checkout SDK `ready` event. A successful browser response is sent to PayGate for server-side signature verification; signed Razorpay webhooks remain the asynchronous provider source of truth.
-
-## Production
-
-Build and validate with `npm run check` and then build the Docker image.
+Razorpay Test/Live experiment pages remain isolated from the PayGate v4 direct-UPI contract. Razorpay Live must never be enabled or used automatically.
