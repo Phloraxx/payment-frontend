@@ -19,7 +19,7 @@ canonical upi_uri
   └─ browser renders QR and polls GET /v1/payments/:id
 ```
 
-The browser never receives a PayGate merchant API key. `PAYGATE_V4_API_KEY` is a runtime-only container variable and is injected by nginx for requests under `/api/paygate/`. Do not prefix it with `VITE_`.
+The browser never receives a PayGate merchant API key. `PAYGATE_V4_API_KEY` is the preferred runtime-only container variable and is injected by nginx for requests under `/api/paygate/`. During the v3→v4 cutover, the container also accepts the existing server-only `PAYGATE_API_KEY` as a compatibility fallback. Do not prefix either secret with `VITE_`.
 
 The direct PayGate create request contains only:
 
@@ -53,7 +53,7 @@ PAYGATE_V4_API_URL=https://pay.mulearnscet.in
 PAYGATE_V4_API_KEY=<dedicated merchant key>
 ```
 
-The container refuses to start without `PAYGATE_V4_API_KEY`. The official nginx image renders `nginx.conf.template` at startup, so the key remains server-side and is absent from browser assets.
+The container refuses to start unless either `PAYGATE_V4_API_KEY` or the legacy server-only `PAYGATE_API_KEY` is present. `PAYGATE_V4_API_KEY` always takes precedence. `PAYGATE_V4_API_URL` similarly falls back to `PAYGATE_URL`, then to `https://pay.mulearnscet.in`. The official nginx image renders `nginx.conf.template` at startup, so the key remains server-side and is absent from browser assets.
 
 `VITE_PAYGATE_CHECKOUT_URL` remains only for the isolated legacy Razorpay experiment pages and is not used by the PayGate v4 flow.
 
