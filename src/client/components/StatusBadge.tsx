@@ -1,4 +1,4 @@
-import { CircleNotch, CheckCircle, Clock, WarningCircle, XCircle } from '@phosphor-icons/react';
+import { CircleNotch, CheckCircle, Clock, XCircle } from '@phosphor-icons/react';
 import type { PaymentStatus } from '../../shared/payment.js';
 
 export function StatusBadge({ status, refreshing = false }: { status: PaymentStatus; refreshing?: boolean }) {
@@ -23,11 +23,7 @@ export function StatusBadge({ status, refreshing = false }: { status: PaymentSta
       className: 'bg-slate-100 text-slate-700 border-slate-200',
       icon: <XCircle className="h-4 w-4" />,
     },
-    late: {
-      label: 'Payment received late',
-      className: 'bg-orange-50 text-orange-800 border-orange-200',
-      icon: <WarningCircle className="h-4 w-4" />,
-    },
+
   };
   const variant = variants[status];
   return (
