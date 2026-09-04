@@ -40,9 +40,26 @@ function PendingPayment({ payment, refreshing, error, onRefresh }: { payment: Pu
   useEffect(() => {
     if (!upiUri) return;
     const frame = window.requestAnimationFrame(() => {
-      const canvas = qrCanvasContainer.current?.querySelector('canvas');
-      setQrImageUrl(canvas?.toDataURL('image/png') ?? null);
-      canvas?.toBlob((blob) => { qrShareFile.current = blob ? new File([blob], `paygate-${payment.id.slice(0, 8)}.png`, { type: 'image/png' }) : null; }, 'image/png');
+      const source = qrCanvasContainer.current?.querySelector('canvas');
+      if (!source) return;
+
+      // The visible card supplies visual padding, but Gallery scanners need the
+      // quiet zone inside the PNG itself. Export a square, unstyled scanner
+      // image with a generous pure-white border around the exact PayGate QR.
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = 1024;
+      exportCanvas.height = 1024;
+      const context = exportCanvas.getContext('2d');
+      if (!context) return;
+      context.imageSmoothingEnabled = false;
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, 1024, 1024);
+      context.drawImage(source, 128, 128, 768, 768);
+
+      setQrImageUrl(exportCanvas.toDataURL('image/png'));
+      exportCanvas.toBlob((blob) => {
+        qrShareFile.current = blob ? new File([blob], `paygate-${payment.id.slice(0, 8)}.png`, { type: 'image/png' }) : null;
+      }, 'image/png');
     });
     return () => window.cancelAnimationFrame(frame);
   }, [upiUri, payment.id]);
@@ -66,19 +83,19 @@ function PendingPayment({ payment, refreshing, error, onRefresh }: { payment: Pu
     return <PageShell><div className="payment-ended"><div className="ended-icon"><Hourglass /></div><p className="paygate-kicker">Payment window ended</p><h1>Don’t pay this QR now.</h1><p>The active and grace windows are over. PayGate is doing a final status check before this amount can eventually return to the pool.</p><button onClick={() => void onRefresh()} disabled={refreshing} className="button-secondary">{refreshing ? <CircleNotch className="h-4 w-4 animate-spin" /> : null} Check status</button><Link to="/" className="button-primary">Start a new payment</Link></div></PageShell>;
   }
 
-  return <PageShell><div className="payment-ready">
+  return <PageShell><div className="payment-ready paygate-enter">
     <div className="payment-topline"><div><p className="paygate-kicker">{inGrace ? 'Final grace window' : 'Ready to pay'}</p><p className="payment-receiver">to {payee}</p></div><div className="payment-timer" aria-live="polite">{refreshing ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <span className="timer-dot" />}{inGrace ? `Extra ${formatCountdown(graceSeconds)}` : formatCountdown(activeSeconds)}</div></div>
     {inGrace && <div className="checkout-warning"><strong>Pay now if you are continuing this payment.</strong><p>The normal five-minute window ended, but PayGate still keeps this exact amount reserved during the grace period.</p></div>}
 
-    <section className="exact-amount-card"><span>Pay exactly</span><div className="exact-amount-row"><strong className="paygate-number">{formatRupeesFromPaise(payment.payableAmountPaise)}</strong><button onClick={() => void copyText('amount', payment.payableAmount)} className="button-icon" aria-label="Copy exact amount">{copied === 'amount' ? <Check /> : <Copy />}</button></div><p>Do not round or change this amount.</p></section>
+    <section className="exact-amount-card amount-reveal"><span>Pay exactly</span><div className="exact-amount-row"><strong className="paygate-number">{formatRupeesFromPaise(payment.payableAmountPaise)}</strong><button onClick={() => void copyText('amount', payment.payableAmount)} className="button-icon" aria-label="Copy exact amount">{copied === 'amount' ? <Check /> : <Copy />}</button></div><p>Do not round or change this amount.</p></section>
 
     {attempted && <div className="waiting-card"><CircleNotch className="h-5 w-5 animate-spin" /><div><strong>Waiting for payment</strong><p>This page polls PayGate automatically. You do not need to choose or know the receiving account.</p></div></div>}
 
     {upiUri ? <>
-      <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true"><QRCodeCanvas value={upiUri} level="M" size={768} bgColor="#ffffff" fgColor="#171814" /></div>
-      <div className="qr-stage">{qrImageUrl ? <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} /> : <CircleNotch className="h-7 w-7 animate-spin text-black/30" />}</div>
+      <div ref={qrCanvasContainer} className="sr-only" aria-hidden="true"><QRCodeCanvas value={upiUri} level="Q" size={768} bgColor="#ffffff" fgColor="#000000" /></div>
+      <div className="qr-stage qr-reveal">{qrImageUrl ? <img src={qrImageUrl} alt={`UPI QR for ₹${payment.payableAmount}`} /> : <CircleNotch className="h-7 w-7 animate-spin text-black/30" />}</div>
       <button onClick={downloadQr} disabled={!qrImageUrl} className="button-primary payment-primary"><DownloadSimple className="h-5 w-5" /> Save QR and pay</button>
-      <p className="payment-help">Scan this QR with any UPI app. The QR is rendered directly from PayGate’s canonical UPI string.</p>
+      <p className="payment-help">Scan this QR with any UPI app. Saved QR images include a scanner-safe white quiet zone for Gallery / Upload QR.</p>
     </> : <div className="checkout-warning"><strong>Payment QR unavailable</strong><p>Do not pay until PayGate returns a valid UPI instruction.</p></div>}
 
     {error && <div role="status" className="status-reconnect"><span>Connection interrupted. Your last confirmed status is still safe.</span><button onClick={() => void onRefresh()}>Retry</button></div>}
@@ -100,7 +117,7 @@ function ResolvedPayment({ payment }: { payment: PublicPayment }) {
     expired: { icon: <Hourglass className="h-10 w-10" />, kicker: 'Expired', title: 'This payment window ended.', description: 'Do not reuse the old QR or exact amount. Start a new payment instead.', tone: 'bg-black/[0.055] text-black/60' },
     cancelled: { icon: <XCircle className="h-10 w-10" />, kicker: 'Closed', title: 'Payment cancelled.', description: 'This payment is no longer active. Start a new payment if you still need to pay.', tone: 'bg-black/[0.055] text-black/60' },
   }[payment.status];
-  return <PageShell><div className="py-2 text-center sm:py-5"><div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${content.tone}`}>{content.icon}</div><p className="paygate-kicker mt-6">{content.kicker}</p><h1 className="mx-auto mt-3 max-w-[12ch] text-[2.45rem] font-black leading-[0.98] tracking-[-0.055em] sm:text-[3.2rem]">{content.title}</h1><p className="paygate-copy mx-auto mt-4 max-w-[42ch]">{content.description}</p>
+  return <PageShell><div className="py-2 text-center sm:py-5 resolved-reveal"><div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${content.tone}`}>{content.icon}</div><p className="paygate-kicker mt-6">{content.kicker}</p><h1 className="mx-auto mt-3 max-w-[12ch] text-[2.45rem] font-black leading-[0.98] tracking-[-0.055em] sm:text-[3.2rem]">{content.title}</h1><p className="paygate-copy mx-auto mt-4 max-w-[42ch]">{content.description}</p>
     <div className="mt-7 rounded-[1.5rem] border border-black/8 bg-white/55 p-5 text-left"><p className="paygate-kicker">{payment.status === 'paid' ? 'Amount received' : 'Payment amount'}</p><p className="paygate-number mt-2 text-4xl font-black tracking-[-0.055em]">{formatRupeesFromPaise(payment.payableAmountPaise)}</p><div className="mt-4 grid gap-3 border-t border-black/8 pt-4"><Detail label="Payment ID" value={payment.id} mono /><Detail label="Name" value={payment.name} />{payment.externalId && <Detail label="Event ID" value={payment.externalId} mono />}{payment.status === 'paid' && payment.paidAt && <Detail label="Paid at" value={new Date(payment.paidAt).toLocaleString()} />}{payment.status === 'paid' && payment.payerName && <Detail label="Payer" value={payment.payerName} />}{payment.status === 'paid' && payment.payerUpiId && <Detail label="Payer UPI" value={payment.payerUpiId} mono />}</div></div>
     <Link to="/" className="button-primary mt-5 min-h-14"><ArrowLeft className="h-4 w-4" /> New payment</Link></div></PageShell>;
 }

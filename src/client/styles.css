@@ -265,10 +265,32 @@
   .detail-actions { grid-template-columns: 1fr; }
 }
 
+
+/* Payment frontend polish — quiet motion and immutable testing context */
 @layer components {
-  .checkout-meta-grid { display: grid; gap: .8rem; }
-  .checkout-meta-grid label { display: grid; gap: .4rem; color: rgba(23,24,20,.48); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-  .checkout-meta-input { width: 100%; border: 1px solid rgba(23,24,20,.1); border-radius: 1rem; background: rgba(255,255,255,.58); padding: .9rem 1rem; color: #171814; outline: none; text-transform: none; letter-spacing: normal; font-size: .9rem; font-weight: 700; }
-  .checkout-meta-input:focus { border-color: rgba(38,110,255,.45); box-shadow: 0 0 0 3px rgba(38,110,255,.08); }
-  @media (min-width: 640px) { .checkout-meta-grid { grid-template-columns: 1fr 1fr; } }
+  .paygate-enter { animation: paygate-enter .46s cubic-bezier(.2,.75,.25,1) both; }
+  .checkout-context-grid { display: grid; gap: .7rem; }
+  .checkout-context-card {
+    position: relative; min-width: 0; border: 1px solid rgba(23,24,20,.08); border-radius: 1rem;
+    background: rgba(255,255,255,.48); padding: .9rem 2.7rem .9rem 1rem;
+    animation: context-rise .44s cubic-bezier(.2,.75,.25,1) both;
+  }
+  .checkout-context-card:nth-child(2) { animation-delay: 70ms; }
+  .checkout-context-card span { display: block; color: rgba(23,24,20,.42); font-size: .64rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+  .checkout-context-card strong { display: block; margin-top: .28rem; overflow: hidden; text-overflow: ellipsis; color: #171814; font-size: .9rem; font-weight: 780; white-space: nowrap; }
+  .checkout-context-card svg { position: absolute; right: .9rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: rgba(23,24,20,.25); }
+  .amount-reveal { animation: amount-reveal .46s cubic-bezier(.18,.75,.24,1) both; }
+  .qr-reveal { animation: qr-reveal .52s cubic-bezier(.16,.8,.2,1) both; }
+  .timer-dot { animation: timer-breathe 1.8s ease-in-out infinite; }
+  .waiting-card svg { animation: paygate-spin 1s linear infinite; }
+  .resolved-reveal { animation: resolved-reveal .55s cubic-bezier(.18,.8,.22,1) both; }
+  @media (min-width: 640px) { .checkout-context-grid { grid-template-columns: 1fr 1fr; } }
 }
+
+@keyframes paygate-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes context-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes amount-reveal { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes qr-reveal { from { opacity: 0; transform: translateY(12px) scale(.965); } to { opacity: 1; transform: none; } }
+@keyframes timer-breathe { 0%,100% { transform: scale(.85); opacity: .62; } 50% { transform: scale(1.2); opacity: 1; } }
+@keyframes paygate-spin { to { transform: rotate(360deg); } }
+@keyframes resolved-reveal { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }

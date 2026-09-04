@@ -6,7 +6,7 @@ This repository is the browser test/reference client for PayGate. It is **not** 
 
 ```text
 Browser
-  │ amount + person/name + event ID
+  │ amount + fixed testing context
   ▼
 nginx same-origin BFF
   │ inject dedicated merchant API key
@@ -26,17 +26,17 @@ The direct PayGate create request contains only:
 ```json
 {
   "amount": 100,
-  "name": "Sourav P Bijoy",
-  "external_id": "evt_hardware_security_2026",
+  "name": "Testing",
+  "external_id": "payment_frontend_testing",
   "metadata": {}
 }
 ```
 
-`Idempotency-Key` is generated client-side and reused only while the amount + name + event ID draft is unchanged. No collection-profile identifier is accepted or sent by this frontend.
+`Idempotency-Key` is generated client-side from the amount plus the fixed testing context (`Testing` / `payment_frontend_testing`). The browser does not expose editable name/event controls, and no collection-profile identifier is accepted or sent by this frontend.
 
 ## QR and lifecycle
 
-PayGate returns the canonical `upi_uri`; the frontend renders that exact string as the QR. It does not reconstruct or sanitize it into a provider-specific variant.
+PayGate returns the canonical `upi_uri`; the frontend renders that exact string as the QR. It does not reconstruct or sanitize it into a provider-specific variant. Download/share uses a dedicated 1024×1024 pure black/white PNG with a 128 px white quiet zone so Gallery/Upload QR scanners do not depend on the decorative on-screen padding.
 
 The UI follows the server lifecycle:
 
