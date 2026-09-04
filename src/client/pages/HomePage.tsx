@@ -1,4 +1,4 @@
-import { ArrowRight, CircleNotch, CurrencyInr, ShieldCheck } from '@phosphor-icons/react';
+import { ArrowRight, CircleNotch, CurrencyInr, LockKey, ShieldCheck } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -6,37 +6,28 @@ import { PageShell } from '../components/PageShell';
 import { ClientApiError, createPayment } from '../lib/api.js';
 import { clearCreateDraft, getOrCreateRequestId, savePaymentSession } from '../lib/session.js';
 
+const TEST_PAYMENT_NAME = 'Testing';
+const TEST_EVENT_ID = 'payment_frontend_testing';
+const TEST_EVENT_LABEL = 'Payment Frontend Testing';
+
 export function HomePage() {
   const navigate = useNavigate();
   const [amount, setAmount] = useState('');
-  const [name, setName] = useState('');
-  const [eventId, setEventId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const rupees = Number(amount);
-    const cleanName = name.trim();
-    const cleanEventId = eventId.trim();
     if (!/^[1-9]\d*$/.test(amount.trim()) || !Number.isSafeInteger(rupees) || rupees <= 0) {
       setError('Enter a whole-rupee amount greater than zero.');
       return;
     }
-    if (!cleanName || cleanName.length > 120) {
-      setError('Enter the person or payment identifier.');
-      return;
-    }
-    if (!cleanEventId || cleanEventId.length > 255) {
-      setError('Enter the event ID.');
-      return;
-    }
-
     setSubmitting(true);
     setError(undefined);
     try {
-      const requestId = getOrCreateRequestId(rupees, cleanName, cleanEventId);
-      const payment = await createPayment({ amount: rupees, name: cleanName, externalId: cleanEventId, requestId });
+      const requestId = getOrCreateRequestId(rupees, TEST_PAYMENT_NAME, TEST_EVENT_ID);
+      const payment = await createPayment({ amount: rupees, name: TEST_PAYMENT_NAME, externalId: TEST_EVENT_ID, requestId });
       savePaymentSession(payment);
       clearCreateDraft();
       navigate(`/pay/${payment.id}`);
@@ -49,11 +40,11 @@ export function HomePage() {
 
   return (
     <PageShell>
-      <div className="checkout-entry">
+      <div className="checkout-entry paygate-enter">
         <div>
           <p className="paygate-kicker">PayGate v4 test</p>
           <h1 className="checkout-title">Create a payment.</h1>
-          <p className="checkout-copy">The client sends only amount, person identifier and event ID. PayGate chooses where the money goes.</p>
+          <p className="checkout-copy">This testing client only asks for the amount. Payment context is fixed, while PayGate chooses the active UPI destination.</p>
         </div>
 
         <form onSubmit={submit} className="checkout-form">
@@ -67,11 +58,17 @@ export function HomePage() {
             </div>
           </label>
 
-          <div className="checkout-meta-grid">
-            <label><span>Person / payment name</span><input value={name} onChange={(event) => { setName(event.target.value); setError(undefined); }}
-              maxLength={120} autoComplete="name" placeholder="Sourav P Bijoy" className="checkout-meta-input" /></label>
-            <label><span>Event ID</span><input value={eventId} onChange={(event) => { setEventId(event.target.value); setError(undefined); }}
-              maxLength={255} autoComplete="off" placeholder="evt_hardware_security_2026" className="checkout-meta-input font-mono" /></label>
+          <div className="checkout-context-grid" aria-label="Fixed payment context">
+            <div className="checkout-context-card">
+              <span>Payment name</span>
+              <strong>{TEST_PAYMENT_NAME}</strong>
+              <LockKey weight="bold" aria-hidden="true" />
+            </div>
+            <div className="checkout-context-card">
+              <span>Event</span>
+              <strong>{TEST_EVENT_LABEL}</strong>
+              <LockKey weight="bold" aria-hidden="true" />
+            </div>
           </div>
 
           <div className="checkout-trust-row">
@@ -86,7 +83,7 @@ export function HomePage() {
           </button>
         </form>
 
-        <p className="checkout-footnote">PayGate returns one canonical UPI string. This test client renders the QR and polls only the payment status.</p>
+        <p className="checkout-footnote">Testing context is locked for this frontend. PayGate returns the canonical UPI instruction; this client renders it and watches payment status.</p>
       </div>
     </PageShell>
   );
